@@ -59,6 +59,8 @@ services:
       # Pre-staged model weights + persistent indexes (provisioned offline).
       - ./models:/models:ro
       - aegis_data:/data
+      # Provisioning scripts (seed_admin) available inside the container.
+      - ./infra/scripts:/app/scripts:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,28 +1,37 @@
-# Aegis RAG — air-gap overlay (CLAUDE.md §6.19, finalized in Step 12).
+# Aegis RAG — air-gap overlay (CLAUDE.md §6.19, §10 Infra).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.airgap.yml up
 #
-# Proves ZERO EGRESS (Golden Rule 1): no published ports except the nginx
-# frontend, an `internal` backplane network with no route to the host/internet,
-# and empty DNS so name resolution to external hosts fails closed.
-#
-# Step 1 ships a minimal, valid overlay; Step 12 hardens it (security headers,
-# read-only rootfs, dropped capabilities, resource limits).
+# Proves ZERO EGRESS (Golden Rule 1):
+#   * no published ports except the nginx frontend;
+#   * an `internal` backplane network with no route to the host/internet;
+#   * empty DNS so name resolution to external hosts fails closed;
+#   * dropped Linux capabilities + no-new-privileges on every service.
+# The full query path still works against in-network services only.
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
 
 services:
   postgres:
+    <<: *hardening
     ports: !reset []
     dns: []
     networks:
       - aegis_internal
 
   ollama:
+    <<: *hardening
     ports: !reset []
     dns: []
     networks:
       - aegis_internal
 
   backend:
+    <<: *hardening
     ports: !reset []
     dns: []
     networks:
@@ -30,6 +39,7 @@ services:
 
   frontend:
     # The only service exposed to operators.
+    <<: *hardening
     ports:
       - "8080:80"
     dns: []

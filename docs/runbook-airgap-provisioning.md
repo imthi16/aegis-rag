@@ -28,8 +28,12 @@ make pull-llm   # qwen2.5:32b -> ollama volume
 ```bash
 make build
 make up                 # or: make up-airgap  (zero published ports but frontend)
-make migrate            # apply DB schema (Step 2+)
-make seed               # default roles + first admin (Step 2+)
+make migrate            # apply DB schema (alembic upgrade head)
+
+# First admin — credentials from the environment, never hardcoded:
+SEED_ADMIN_USERNAME=admin SEED_ADMIN_PASSWORD='<strong-password>' \
+  docker compose exec -e SEED_ADMIN_USERNAME -e SEED_ADMIN_PASSWORD backend \
+  python scripts/seed_admin.py
 ```
 
 ## 4. Verify

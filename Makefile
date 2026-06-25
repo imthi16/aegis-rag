@@ -44,8 +44,8 @@ logs: ## Tail backend logs
 	$(COMPOSE) logs -f backend
 
 .PHONY: seed
-seed: ## Create default roles + first admin
-	$(COMPOSE) exec backend python -m infra.scripts.seed_admin
+seed: ## Create default roles + first admin (SEED_ADMIN_PASSWORD required)
+	$(COMPOSE) exec backend python scripts/seed_admin.py
 
 .PHONY: migrate
 migrate: ## Apply database migrations
