@@ -42,6 +42,8 @@ ignore = ["B008"]  # FastAPI Depends() in defaults is idiomatic.
 # (see Settings._reject_placeholder). Suppress the hardcoded-secret heuristic.
 # S104: APP_HOST default "0.0.0.0" is intentional for a containerized service.
 "app/core/config.py" = ["S104", "S105", "S106"]
+# token_type="bearer" is an OAuth2 scheme name, not a secret.
+"app/schemas/auth.py" = ["S105"]
 
 [tool.mypy]
 python_version = "3.11"
