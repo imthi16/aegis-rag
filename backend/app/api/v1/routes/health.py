@@ -43,7 +43,7 @@ async def _check_ollama() -> bool:
 
 async def _check_faiss() -> bool:
     try:
-        from app.retrieval.faiss_store import is_ready  # type: ignore[attr-defined]
+        from app.retrieval.faiss_store import is_ready
 
         return bool(is_ready())
     except Exception:
@@ -52,7 +52,7 @@ async def _check_faiss() -> bool:
 
 async def _check_embedder() -> bool:
     try:
-        from app.embeddings.embedder import is_ready  # type: ignore[attr-defined]
+        from app.embeddings.embedder import is_ready
 
         return bool(is_ready())
     except Exception:
