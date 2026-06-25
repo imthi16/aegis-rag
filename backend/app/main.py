@@ -19,6 +19,7 @@ from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import RequestIdMiddleware, configure_logging, get_logger
+from app.db.session import dispose_engines
 
 API_V1_PREFIX = "/api/v1"
 
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await dispose_engines()
         logger.info("shutdown")
 
 

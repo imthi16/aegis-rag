@@ -62,6 +62,8 @@ module = [
     "deepeval.*",
     "ollama.*",
     "slowapi.*",
+    "jose.*",
+    "passlib.*",
 ]
 ignore_missing_imports = true
 

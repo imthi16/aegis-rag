@@ -25,7 +25,7 @@ async def health() -> dict[str, str]:
 
 async def _check_db() -> bool:
     try:
-        from app.db.session import ping_db  # type: ignore[attr-defined]
+        from app.db.session import ping_db
 
         return bool(await ping_db())
     except Exception:
