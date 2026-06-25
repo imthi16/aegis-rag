@@ -34,7 +34,7 @@ async def _check_db() -> bool:
 
 async def _check_ollama() -> bool:
     try:
-        from app.generation.llm import ping_llm  # type: ignore[attr-defined]
+        from app.generation.llm import ping_llm
 
         return bool(await ping_llm())
     except Exception:
