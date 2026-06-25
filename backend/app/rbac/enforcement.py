@@ -21,10 +21,6 @@ from app.rbac.classifications import Role
 logger = get_logger("app.rbac")
 
 
-class _HasAllowedRoles(Protocol):
-    allowed_roles: list[str]
-
-
 class _HasDocumentId(Protocol):
     document_id: uuid.UUID
 
@@ -42,7 +38,7 @@ def is_admin(user: User) -> bool:
     return Role.ADMIN in user_role_set(user)
 
 
-def is_document_visible(doc: _HasAllowedRoles, user_roles: set[Role]) -> bool:
+def is_document_visible(doc: Document, user_roles: set[Role]) -> bool:
     """A doc is visible iff the user is admin or shares a role with allowed_roles.
 
     Pure + fail-closed: any malformed input → not visible.

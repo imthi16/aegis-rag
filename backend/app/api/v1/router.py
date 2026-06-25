@@ -8,16 +8,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1.routes import audit, auth, health
+from app.api.v1.routes import audit, auth, documents, health
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
+api_router.include_router(documents.router)
 
 # Wired in later steps:
-#   from app.api.v1.routes import documents, query, eval, admin
-#   api_router.include_router(documents.router) # Step 6
+#   from app.api.v1.routes import query, eval, admin
 #   api_router.include_router(query.router)     # Step 9
 #   api_router.include_router(eval.router)      # Step 10
 #   api_router.include_router(admin.router)     # Step 3 (after audit, Step 4)

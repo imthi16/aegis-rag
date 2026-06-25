@@ -66,6 +66,8 @@ module = [
     "slowapi.*",
     "jose.*",
     "passlib.*",
+    "bs4.*",
+    "transformers.*",
 ]
 ignore_missing_imports = true
 
