@@ -51,3 +51,46 @@ class UserMe(BaseModel):
 
 class LogoutResponse(BaseModel):
     status: str = "ok"
+
+
+# ── Admin / RBAC management (CLAUDE.md §7 Admin) ────────────
+class UserSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    username: str
+    email: str | None
+    roles: list[str]
+    is_active: bool
+
+
+class UserListResponse(BaseModel):
+    items: list[UserSummary]
+    total: int
+    page: int
+    size: int
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    email: str | None = None
+    password: str
+    roles: list[str] = []
+
+
+class RoleAssignRequest(BaseModel):
+    add: list[str] = []
+    remove: list[str] = []
+
+
+class RoleSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    description: str | None
+
+
+class CreateRoleRequest(BaseModel):
+    name: str
+    description: str | None = None
