@@ -1,0 +1,11 @@
+# Optional, LOCAL-ONLY metrics scrape (CLAUDE.md §2 — OpenTelemetry/Prometheus
+# export to a local collector only; never off-box). Wired in later as needed.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: aegis-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]

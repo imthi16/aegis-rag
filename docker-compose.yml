@@ -1,0 +1,97 @@
+# Aegis RAG — base compose (CLAUDE.md §6.19, Step 1).
+# Brings up postgres + ollama + backend + frontend on a private network.
+# All inter-service traffic stays inside `aegis_net`; the airgap overlay
+# (docker-compose.airgap.yml) removes published ports and external DNS.
+
+name: aegis-rag
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegis}
+      POSTGRES_USER: ${POSTGRES_USER:-aegis_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegis_app} -d ${POSTGRES_DB:-aegis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - aegis_net
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - aegis_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Ensure intra-network hostnames regardless of .env defaults.
+      POSTGRES_HOST: postgres
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      # Pre-staged model weights + persistent indexes (provisioned offline).
+      - ./models:/models:ro
+      - aegis_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - aegis_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks:
+      - aegis_net
+
+volumes:
+  pgdata:
+  ollama_models:
+  aegis_data:
+
+networks:
+  aegis_net:
+    driver: bridge

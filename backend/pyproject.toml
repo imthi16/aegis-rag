@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-rag-backend"
+version = "0.1.0"
+description = "Aegis RAG — air-gapped Sovereign RAG platform (backend)"
+requires-python = "==3.11.*"
+readme = "../README.md"
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "pytest-cov==6.0.0",
+    "ruff==0.8.4",
+    "mypy==1.14.0",
+]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "C4", "SIM"]
+# S101 (assert) is fine in tests; allow it there via per-file-ignores.
+ignore = ["B008"]  # FastAPI Depends() in defaults is idiomatic.
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+# config.py declares secret-bearing settings with CHANGE_ME_* placeholder
+# defaults; they are not real secrets and are rejected at runtime in production
+# (see Settings._reject_placeholder). Suppress the hardcoded-secret heuristic.
+# S104: APP_HOST default "0.0.0.0" is intentional for a containerized service.
+"app/core/config.py" = ["S104", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+# Third-party libs without stubs — do not block strict typing of our code.
+[[tool.mypy.overrides]]
+module = [
+    "FlagEmbedding.*",
+    "faiss.*",
+    "rank_bm25.*",
+    "fitz.*",
+    "docx.*",
+    "ragas.*",
+    "deepeval.*",
+    "ollama.*",
+    "slowapi.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

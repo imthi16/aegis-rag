@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Offline-by-env, even in CI, to catch any accidental hub/telemetry calls.
+env:
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_DATASETS_OFFLINE: "1"
+
+jobs:
+  backend:
+    name: Backend — lint, type-check, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Ruff (format check)
+        run: ruff format --check .
+
+      - name: mypy (strict)
+        run: mypy app
+
+      - name: pytest
+        run: pytest
+
+  eval-gate:
+    name: Eval gate (RAGAS + DeepEval, local models)
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The gate runs against LOCAL Ollama + local embeddings only (Step 10).
+      # Neutral until implemented; flip to required once a CI-local model is
+      # provisioned in the runner.
+      - name: Run CI eval gate
+        run: python eval/ci_gate.py --suite both

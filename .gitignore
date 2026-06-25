@@ -1,0 +1,40 @@
+# ── Secrets / env ───────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg
+
+# ── Node / frontend ─────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# ── Models & indexes (pre-staged volumes; never committed) ──
+/models/
+/data/
+*.faiss
+*.pkl
+backend/app/eval/datasets/*.local.jsonl
+
+# ── Logs / tmp ──────────────────────────────────────
+*.log
+.DS_Store
+*.swp
+
+# ── Editor / IDE ────────────────────────────────────
+.idea/
+.vscode/
