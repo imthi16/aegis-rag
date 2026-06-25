@@ -61,7 +61,7 @@ async def _check_embedder() -> bool:
 
 async def _check_reranker() -> bool:
     try:
-        from app.retrieval.reranker import is_ready  # type: ignore[attr-defined]
+        from app.retrieval.reranker import is_ready
 
         return bool(is_ready())
     except Exception:
