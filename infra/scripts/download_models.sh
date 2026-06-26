@@ -31,14 +31,12 @@ fi
 
 # NOTE: explicitly online here. Do not set HF_HUB_OFFLINE for this script.
 echo ">> Downloading embeddings: ${EMBEDDING_REPO}"
-huggingface-cli download "${EMBEDDING_REPO}" \
+hf download "${EMBEDDING_REPO}" \
   --local-dir "${EMBEDDING_DIR}" \
-  --local-dir-use-symlinks False
 
 echo ">> Downloading reranker:   ${RERANKER_REPO}"
-huggingface-cli download "${RERANKER_REPO}" \
+hf download "${RERANKER_REPO}" \
   --local-dir "${RERANKER_DIR}" \
-  --local-dir-use-symlinks False
 
 echo ">> Done. Verify the paths match your .env:"
 echo "     EMBEDDING_MODEL_PATH=/models/bge-m3"

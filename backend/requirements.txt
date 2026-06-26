@@ -46,7 +46,7 @@ opentelemetry-exporter-otlp==1.29.0
 
 # ── Evaluation (wired to LOCAL models only — never OpenAI) ──
 ragas==0.2.9
-deepeval==2.0.9
+deepeval
 
 # ── HTTP client (local services only) ───────────────
-httpx==0.28.1
+httpx==0.27.2
