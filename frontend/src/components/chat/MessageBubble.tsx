@@ -1,4 +1,7 @@
+import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
+
 import { CitationChip } from "@/components/citations/CitationChip";
+import { cn } from "@/lib/utils";
 import type { Citation } from "@/types/api";
 
 interface MessageBubbleProps {
@@ -7,6 +10,7 @@ interface MessageBubbleProps {
   citations?: Citation[];
   insufficientEvidence?: boolean;
   faithful?: boolean;
+  pending?: boolean;
 }
 
 export function MessageBubble({
@@ -15,30 +19,43 @@ export function MessageBubble({
   citations = [],
   insufficientEvidence = false,
   faithful = true,
+  pending = false,
 }: MessageBubbleProps): JSX.Element {
   const isUser = role === "user";
+
   return (
-    <div className={isUser ? "flex justify-end" : "flex justify-start"}>
+    <div className={cn("flex animate-slide-up", isUser ? "justify-end" : "justify-start")}>
       <div
-        className={
+        className={cn(
+          "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
           isUser
-            ? "max-w-[75%] rounded-lg bg-slate-800 px-3 py-2 text-white"
-            : "max-w-[75%] rounded-lg bg-white px-3 py-2 text-slate-800 shadow"
-        }
+            ? "rounded-br-md bg-indigo-600 text-white shadow-sm"
+            : "rounded-bl-md border border-slate-200/80 bg-white text-slate-800 shadow-soft",
+        )}
       >
-        {!isUser && insufficientEvidence && (
-          <div className="mb-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-            Insufficient evidence
+        {!isUser && !pending && insufficientEvidence && (
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+            <AlertTriangle className="h-3.5 w-3.5" /> Insufficient evidence
           </div>
         )}
-        {!isUser && !insufficientEvidence && !faithful && (
-          <div className="mb-1 rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
-            Low faithfulness — not verified
+        {!isUser && !pending && !insufficientEvidence && !faithful && (
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/20">
+            <ShieldAlert className="h-3.5 w-3.5" /> Low faithfulness — not verified
           </div>
         )}
-        <p className="whitespace-pre-wrap">{text}</p>
+        {!isUser && !pending && !insufficientEvidence && faithful && citations.length > 0 && (
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+            <ShieldCheck className="h-3.5 w-3.5" /> Verified · grounded
+          </div>
+        )}
+
+        <p className="whitespace-pre-wrap">
+          {text}
+          {pending && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-slate-400 align-middle" />}
+        </p>
+
         {citations.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2.5">
             {citations.map((c) => (
               <CitationChip key={`${c.marker}-${c.chunk_id}`} citation={c} />
             ))}
