@@ -30,7 +30,7 @@ Generic RAG apps phone home to OpenAI, leak across tenants, and can't prove what
 | 📌 | **Citations are mandatory.** Every factual claim maps to a chunk with `document_id`, `chunk_id`, and character offsets. No grounding ⇒ flagged, never faked. |
 | 🚫 | **No silent hallucination.** If evidence is insufficient, Aegis says so. The corrective action is *internal query rewrite + re‑retrieval* — **never** a web search. |
 | 🔗 | **Tamper‑evident audit log.** Hash‑chained, HMAC‑signed, append‑only (enforced by a DB trigger + a least‑privilege role), with a `/audit/verify` integrity endpoint. |
-| ✅ | **CI‑gated evaluation.** RAGAS + DeepEval (faithfulness / hallucination / relevancy) run against **local models only** and fail the build below thresholds. |
+| ✅ | **CI‑gated evaluation.** RAGAS + a built‑in local evaluator (faithfulness / hallucination / relevancy) run against **local models only** and fail the build below thresholds. |
 
 > 📜 Compliance‑mapped to **HIPAA · GDPR · EU AI Act · DORA · Swiss FADP/FINMA · UAE PDPL/DIFC Reg 10** — see [`docs/compliance-mapping.md`](./docs/compliance-mapping.md).
 
@@ -109,7 +109,7 @@ make up-airgap          # 🔌 zero-egress mode: only the frontend is exposed
 | **Backend** | FastAPI · Pydantic v2 · SQLAlchemy 2 (async) + asyncpg · Alembic · LangGraph |
 | **Retrieval** | FAISS (dense) · `rank_bm25` (lexical) · Reciprocal Rank Fusion · BGE‑M3 · bge‑reranker‑v2‑m3 |
 | **Generation** | Qwen2.5 32B via Ollama (temperature 0 for all grading) |
-| **Eval** | RAGAS + DeepEval — wired to **local** Ollama + embeddings |
+| **Eval** | RAGAS + built‑in local evaluator — wired to **local** Ollama + embeddings |
 | **Frontend** | React 18 · TypeScript (strict) · Vite · TanStack Query · Zustand · Tailwind |
 | **Infra** | Docker Compose (+ `airgap` overlay) · nginx · GitHub Actions CI |
 
@@ -126,7 +126,7 @@ POST /api/v1/documents             → upload + ingest (analyst, admin)
 POST /api/v1/query                 → cited, faithfulness-graded answer
 POST /api/v1/query/stream          → SSE token stream + final QueryResponse
 GET  /api/v1/audit/verify          → tamper-evidence attestation
-POST /api/v1/eval/run              → RAGAS/DeepEval run (local models)
+POST /api/v1/eval/run              → RAGAS + local evaluator run (local models)
 POST /api/v1/admin/users           → user + role management (audited)
 ```
 

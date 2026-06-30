@@ -61,7 +61,6 @@ module = [
     "fitz.*",
     "docx.*",
     "ragas.*",
-    "deepeval.*",
     "ollama.*",
     "slowapi.*",
     "jose.*",
@@ -78,7 +77,4 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["."]
-# deepeval registers a pytest11 plugin that eagerly imports model backends
-# (incl. google.genai), crashing collection. We never use that plugin — the
-# eval runners import deepeval lazily — so block its autoload.
-addopts = "-q -p no:deepeval"
+addopts = "-q"

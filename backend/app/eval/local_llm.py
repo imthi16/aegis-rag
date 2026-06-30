@@ -1,17 +1,24 @@
-"""Local-model wiring for RAGAS + DeepEval (CLAUDE.md §6.16).
+"""Local-model wiring for the evaluation suite (CLAUDE.md §6.16).
 
-CRITICAL (Golden Rule 2): RAGAS and DeepEval default to OpenAI. Every metric MUST
-be passed the local Ollama LLM + local BGE-M3 embeddings. Nothing here may reach
-an external API. Heavy imports are lazy so the package loads without ragas /
-deepeval / langchain-community installed.
+CRITICAL (Golden Rule 2): RAGAS defaults to OpenAI; every metric MUST be passed
+the local Ollama LLM + local BGE-M3 embeddings. The hallucination / faithfulness
+suite is computed by a built-in evaluator (``app.eval.deepeval_runner``) driven
+by the local JSON grader below — the third-party ``deepeval`` package is
+intentionally NOT used: it carries a telemetry/tracking layer and eagerly imports
+cloud-model backends, both of which violate the zero-egress rule. Heavy imports
+are lazy so the package loads without ragas / langchain-community / ollama.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from app.core.config import get_settings
 from app.embeddings.embedder import get_embedder
+
+# A grader takes chat messages and returns the model's raw (JSON) reply.
+Grader = Callable[[list[dict[str, str]]], str]
 
 
 def get_ragas_llm() -> Any:
@@ -43,31 +50,31 @@ def get_ragas_embeddings() -> Any:
     return _LocalEmbeddings()
 
 
-def get_deepeval_model() -> Any:
-    """DeepEval custom LLM backed by the local Ollama server."""
-    from deepeval.models.base_model import DeepEvalBaseLLM
+def get_local_grader() -> Grader:
+    """Synchronous JSON grader backed by the local Ollama server (temperature 0).
+
+    Powers the built-in evaluator (``app.eval.deepeval_runner``). Returns a
+    callable that takes chat messages and returns the model's raw JSON reply.
+    No third-party eval package, no egress — same offline guarantee as the rest
+    of the platform.
+    """
+    import ollama
 
     settings = get_settings()
+    client = ollama.Client(host=settings.ollama_host)
 
-    class _OllamaDeepEval(DeepEvalBaseLLM):  # type: ignore[misc]  # untyped base
-        def load_model(self) -> Any:
-            import ollama
+    def _grade(messages: list[dict[str, str]]) -> str:
+        resp = client.chat(
+            model=settings.ollama_model,
+            messages=messages,
+            options={
+                "temperature": settings.ollama_temperature_grade,
+                "num_ctx": settings.ollama_num_ctx,
+            },
+            format="json",
+        )
+        message = resp["message"] if isinstance(resp, dict) else resp.message
+        content = message["content"] if isinstance(message, dict) else message.content
+        return str(content)
 
-            return ollama.Client(host=settings.ollama_host)
-
-        def generate(self, prompt: str) -> str:
-            client = self.load_model()
-            resp = client.chat(
-                model=settings.ollama_model,
-                messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.0},
-            )
-            return str(resp["message"]["content"])
-
-        async def a_generate(self, prompt: str) -> str:
-            return self.generate(prompt)
-
-        def get_model_name(self) -> str:
-            return settings.ollama_model
-
-    return _OllamaDeepEval()
+    return _grade
