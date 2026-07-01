@@ -1,4 +1,4 @@
-import { MessagesSquare, Send, Sparkles } from "lucide-react";
+import { CornerDownLeft, Radar, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
@@ -53,30 +53,37 @@ export function ChatPanel(): JSX.Element {
   const empty = turns.length === 0 && !loading;
 
   return (
-    <div className="grid h-[calc(100vh-1px)] grid-cols-1 lg:grid-cols-[1fr_360px]">
+    <div className="grid h-[calc(100vh-1px)] grid-cols-1 lg:grid-cols-[1fr_368px]">
       {/* Conversation column */}
       <div className="flex h-full min-h-0 flex-col">
         <div ref={scrollRef} className="scroll-slim flex-1 overflow-y-auto px-4 py-6 md:px-8">
           <div className="mx-auto max-w-3xl space-y-4">
             {empty ? (
-              <div className="mx-auto mt-16 max-w-md text-center">
-                <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-indigo-600/10 ring-1 ring-indigo-600/20">
-                  <MessagesSquare className="h-7 w-7 text-indigo-600" />
+              <div className="mx-auto mt-14 max-w-md text-center">
+                <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-xl border border-edge/12 bg-slab text-beacon shadow-panel">
+                  <Radar className="h-7 w-7" />
                 </div>
-                <h2 className="text-lg font-semibold text-slate-800">Ask your corpus</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Answers are grounded in your documents, cited, and faithfulness-graded.
+                <div className="eyebrow mb-2">// Interrogate corpus</div>
+                <h2 className="text-xl font-semibold tracking-tight text-fg">
+                  Ask, and see the evidence
+                </h2>
+                <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-fg-dim">
+                  Every answer is grounded in your authorized documents, cited to the source span,
+                  and graded for faithfulness before you read it.
                 </p>
-                <div className="mt-5 flex flex-col gap-2">
-                  {SAMPLES.map((s) => (
+                <div className="mt-6 space-y-2 text-left">
+                  {SAMPLES.map((s, i) => (
                     <button
                       key={s}
                       type="button"
                       onClick={() => void send(s)}
-                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-left text-sm text-slate-600 shadow-soft transition-colors hover:border-indigo-200 hover:bg-indigo-50/40"
+                      className="group flex w-full items-center gap-3 rounded-md border border-edge/12 bg-slab px-3.5 py-2.5 text-left text-sm text-fg-dim transition-colors hover:border-beacon/30 hover:text-fg"
                     >
-                      <Sparkles className="h-4 w-4 text-indigo-400" />
-                      {s}
+                      <span className="font-mono text-[11px] text-fg-faint group-hover:text-beacon">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span className="flex-1">{s}</span>
+                      <Search className="h-3.5 w-3.5 text-fg-faint opacity-0 transition-opacity group-hover:opacity-100" />
                     </button>
                   ))}
                 </div>
@@ -88,10 +95,10 @@ export function ChatPanel(): JSX.Element {
                 ))}
                 {liveAssistant && <MessageBubble {...liveAssistant} />}
                 {loading && !response && (
-                  <MessageBubble role="assistant" text={answer || "Thinking…"} pending />
+                  <MessageBubble role="assistant" text={answer || "Retrieving evidence…"} pending />
                 )}
                 {error && (
-                  <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                  <div className="rounded-md bg-crimson/10 px-3 py-2 text-sm text-crimson ring-1 ring-inset ring-crimson/25">
                     {error}
                   </div>
                 )}
@@ -100,8 +107,8 @@ export function ChatPanel(): JSX.Element {
           </div>
         </div>
 
-        {/* Composer */}
-        <div className="border-t border-slate-200 bg-white/70 px-4 py-3 backdrop-blur md:px-8">
+        {/* Command bar */}
+        <div className="border-t border-edge/12 bg-slab/70 px-4 py-3.5 backdrop-blur md:px-8">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -109,33 +116,32 @@ export function ChatPanel(): JSX.Element {
             }}
             className="mx-auto flex max-w-3xl items-center gap-2"
           >
+            <span className="hidden font-mono text-sm text-beacon sm:inline">›</span>
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question over your corpus…"
-              className="h-11"
+              placeholder="Query the corpus…"
+              className="h-11 font-mono text-[13px]"
             />
             <Button type="submit" size="lg" disabled={loading || !input.trim()}>
-              <Send className="h-4 w-4" />
               <span className="hidden sm:inline">Ask</span>
+              <CornerDownLeft className="h-4 w-4" />
             </Button>
           </form>
         </div>
       </div>
 
-      {/* Evidence column */}
-      <aside className="hidden border-l border-slate-200 bg-white/50 lg:block">
+      {/* Evidence rail */}
+      <aside className="hidden border-l border-edge/12 bg-slab/40 lg:block">
         <div className="scroll-slim h-screen overflow-y-auto p-5">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <Sparkles className="h-4 w-4 text-indigo-500" /> Evidence
-          </h2>
+          <div className="eyebrow mb-4">// Evidence</div>
           {response ? (
             <EvidencePanel response={response} />
           ) : (
-            <p className="text-sm text-slate-400">
-              Retrieval evidence — grades, faithfulness, and source chunks — appears here after you
+            <div className="rounded-md border border-dashed border-edge/15 p-4 text-sm leading-relaxed text-fg-faint">
+              Retrieval evidence — grades, faithfulness, and source spans — appears here once you
               ask.
-            </p>
+            </div>
           )}
         </div>
       </aside>

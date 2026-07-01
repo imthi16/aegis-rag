@@ -4,15 +4,18 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-100 disabled:pointer-events-none disabled:opacity-45",
   {
     variants: {
       variant: {
-        primary: "bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 active:bg-indigo-700",
-        subtle: "bg-slate-100 text-slate-700 hover:bg-slate-200",
-        outline: "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-        ghost: "text-slate-600 hover:bg-slate-100",
-        danger: "bg-rose-600 text-white shadow-sm hover:bg-rose-500",
+        // Primary is a beveled physical key: bright top lip, solid base, and it
+        // depresses on press (drops the cast shadow, sinks 1px).
+        primary:
+          "bg-beacon text-ink shadow-key hover:bg-beacon/90 active:translate-y-px active:shadow-key-press",
+        subtle: "bg-raise text-fg shadow-e1 hover:bg-raise/70 ring-1 ring-inset ring-edge/12 active:translate-y-px",
+        outline: "border border-edge/18 bg-transparent text-fg-dim hover:border-edge/30 hover:text-fg",
+        ghost: "text-fg-dim hover:bg-raise hover:text-fg",
+        danger: "bg-crimson/15 text-crimson ring-1 ring-inset ring-crimson/30 hover:bg-crimson/25",
       },
       size: {
         sm: "h-8 px-3",

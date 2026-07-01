@@ -10,15 +10,20 @@ import { cn } from "@/lib/utils";
 
 function Metric({ label, value }: { label: string; value: number | null }): JSX.Element {
   const v = value ?? 0;
+  const ok = v >= 0.7;
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-        <span>{label}</span>
-        <span className="font-mono text-slate-600">{value === null ? "—" : v.toFixed(2)}</span>
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-faint">
+          {label}
+        </span>
+        <span className="font-mono text-xs tabular-nums text-fg-dim">
+          {value === null ? "—" : v.toFixed(2)}
+        </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+      <div className="h-1.5 overflow-hidden rounded-full bg-ink ring-1 ring-inset ring-edge/12">
         <div
-          className={cn("h-full rounded-full", v >= 0.7 ? "bg-emerald-500" : "bg-amber-500")}
+          className={cn("h-full rounded-full", ok ? "bg-beacon" : "bg-gold")}
           style={{ width: `${Math.max(0, Math.min(1, v)) * 100}%` }}
         />
       </div>
@@ -39,8 +44,9 @@ export function EvalPage(): JSX.Element {
   return (
     <div className="flex h-screen flex-col">
       <PageHeader
-        title="Evaluation"
-        subtitle="RAGAS + DeepEval against local models only"
+        eyebrow="Evaluation"
+        title="Faithfulness gate"
+        subtitle="RAGAS + local evaluator — run entirely against on-premise models"
         icon={<FlaskConical className="h-5 w-5" />}
         actions={
           <Button onClick={() => trigger.mutate()} disabled={trigger.isPending}>
@@ -56,35 +62,37 @@ export function EvalPage(): JSX.Element {
       <div className="scroll-slim flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-5xl">
           {isLoading && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-fg-dim">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading runs…
             </div>
           )}
           {!isLoading && runs.length === 0 && (
             <Card className="grid place-items-center gap-2 p-12 text-center">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100">
-                <FlaskConical className="h-6 w-6 text-slate-400" />
+              <div className="grid h-12 w-12 place-items-center rounded-md border border-edge/12 bg-ink text-fg-faint">
+                <FlaskConical className="h-6 w-6" />
               </div>
-              <p className="text-sm font-medium text-slate-600">No evaluation runs yet</p>
-              <p className="text-xs text-slate-400">Trigger a run to gate faithfulness & hallucination.</p>
+              <p className="text-sm font-medium text-fg">No evaluation runs yet</p>
+              <p className="text-xs text-fg-faint">
+                Trigger a run to gate faithfulness &amp; hallucination.
+              </p>
             </Card>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {runs.map((run) => (
               <Card key={run.id} className="p-5">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-sm font-semibold capitalize text-slate-800">
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="font-mono text-sm font-semibold uppercase tracking-wider text-fg">
                     {run.suite}
                   </span>
-                  <Badge tone={run.passed ? "emerald" : "rose"}>
+                  <Badge tone={run.passed ? "jade" : "crimson"}>
                     {run.passed ? "passed" : "failed"}
                   </Badge>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-3.5">
                   <Metric label="Faithfulness" value={run.faithfulness_avg} />
                   <Metric label="Hallucination" value={run.hallucination_rate} />
                 </div>
-                <div className="mt-4 text-[11px] text-slate-400">
+                <div className="mt-4 font-mono text-[10px] text-fg-faint">
                   {new Date(run.created_at).toLocaleString()}
                 </div>
               </Card>

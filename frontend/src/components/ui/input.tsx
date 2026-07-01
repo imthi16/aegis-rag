@@ -2,8 +2,10 @@ import type { InputHTMLAttributes, LabelHTMLAttributes, SelectHTMLAttributes } f
 
 import { cn } from "@/lib/utils";
 
+// Fields are milled into the faceplate — recessed wells (shadow-well) so text
+// reads as sitting below the surface, lit by the beacon on focus.
 const fieldBase =
-  "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-sm transition-colors placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-50";
+  "h-10 w-full rounded-md border border-edge/15 bg-ink px-3 text-sm text-fg shadow-well transition-colors placeholder:text-fg-faint focus:border-beacon/60 focus:outline-none focus:ring-1 focus:ring-beacon/40 disabled:opacity-50";
 
 export function Input({
   className,
@@ -25,7 +27,10 @@ export function Label({
 }: LabelHTMLAttributes<HTMLLabelElement>): JSX.Element {
   return (
     <label
-      className={cn("mb-1.5 block text-sm font-medium text-slate-700", className)}
+      className={cn(
+        "mb-1.5 block font-mono text-[11px] uppercase tracking-eyebrow text-fg-faint",
+        className,
+      )}
       {...props}
     />
   );

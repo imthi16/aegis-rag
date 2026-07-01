@@ -11,8 +11,9 @@ export function DocumentsPage(): JSX.Element {
   return (
     <div className="flex h-screen flex-col">
       <PageHeader
+        eyebrow="Corpus"
         title="Documents"
-        subtitle="Your RBAC-filtered corpus"
+        subtitle="RBAC-filtered — you see only what your roles authorize"
         icon={<FileText className="h-5 w-5" />}
         actions={canUpload ? <UploadDialog /> : undefined}
       />

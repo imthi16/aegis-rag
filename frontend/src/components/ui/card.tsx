@@ -3,15 +3,7 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>): JSX.Element {
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border border-slate-200/80 bg-white shadow-soft",
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <div className={cn("hw rounded-lg", className)} {...props} />;
 }
 
 export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>): JSX.Element {
@@ -20,7 +12,7 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
 
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>): JSX.Element {
   return (
-    <h3 className={cn("text-sm font-semibold tracking-tight text-slate-800", className)} {...props} />
+    <h3 className={cn("text-sm font-semibold tracking-tight text-fg", className)} {...props} />
   );
 }
 

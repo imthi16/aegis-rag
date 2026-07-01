@@ -14,23 +14,23 @@ export function DocumentList(): JSX.Element {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-slate-500">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading documents…
+      <div className="flex items-center gap-2 text-sm text-fg-dim">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading corpus…
       </div>
     );
   }
-  if (error) return <p className="text-sm text-rose-600">{(error as Error).message}</p>;
+  if (error) return <p className="text-sm text-crimson">{(error as Error).message}</p>;
 
   const items = data?.items ?? [];
   if (items.length === 0) {
     return (
       <Card className="grid place-items-center gap-2 p-12 text-center">
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100">
-          <FileText className="h-6 w-6 text-slate-400" />
+        <div className="grid h-12 w-12 place-items-center rounded-md border border-edge/12 bg-ink text-fg-faint">
+          <FileText className="h-6 w-6" />
         </div>
-        <p className="text-sm font-medium text-slate-600">No documents visible to you</p>
-        <p className="text-xs text-slate-400">
-          Documents you're authorized to see will appear here.
+        <p className="text-sm font-medium text-fg">No documents visible to you</p>
+        <p className="text-xs text-fg-faint">
+          Only documents your roles authorize will appear here.
         </p>
       </Card>
     );
@@ -39,8 +39,8 @@ export function DocumentList(): JSX.Element {
   return (
     <Card className="overflow-hidden">
       <table className="w-full text-left text-sm">
-        <thead className="border-b border-slate-200 bg-slate-50/60 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
+        <thead className="border-b border-edge/12 bg-ink/40">
+          <tr className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-faint">
             <th className="px-5 py-3 font-medium">Document</th>
             <th className="px-5 py-3 font-medium">Classification</th>
             <th className="px-5 py-3 font-medium">Allowed roles</th>
@@ -48,22 +48,26 @@ export function DocumentList(): JSX.Element {
             <th className="px-5 py-3 font-medium">Status</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-edge/8">
           {items.map((d) => (
-            <tr key={d.id} className="transition-colors hover:bg-slate-50/60">
+            <tr key={d.id} className="transition-colors hover:bg-raise/40">
               <td className="px-5 py-3">
                 <div className="flex items-center gap-2.5">
-                  <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-                  <span className="font-medium text-slate-700">{d.filename}</span>
+                  <FileText className="h-4 w-4 shrink-0 text-fg-faint" />
+                  <span className="font-medium text-fg">{d.filename}</span>
                 </div>
               </td>
               <td className="px-5 py-3">
                 <Badge tone={classificationTone(d.classification)}>{d.classification}</Badge>
               </td>
-              <td className="px-5 py-3 text-xs text-slate-500">{d.allowed_roles.join(", ")}</td>
-              <td className="px-5 py-3 text-right font-mono text-slate-600">{d.chunk_count}</td>
+              <td className="px-5 py-3 font-mono text-xs text-fg-dim">
+                {d.allowed_roles.join(" · ")}
+              </td>
+              <td className="px-5 py-3 text-right font-mono text-fg-dim tabular-nums">
+                {d.chunk_count}
+              </td>
               <td className="px-5 py-3">
-                <Badge tone={d.status === "ready" ? "emerald" : "slate"}>{d.status}</Badge>
+                <Badge tone={d.status === "ready" ? "jade" : "slate"}>{d.status}</Badge>
               </td>
             </tr>
           ))}
