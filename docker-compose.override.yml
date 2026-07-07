@@ -1,0 +1,11 @@
+# Local override: give the ollama service GPU access (requires
+# nvidia-container-toolkit configured in the Docker daemon).
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

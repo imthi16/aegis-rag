@@ -199,6 +199,62 @@ make models     # BGE-M3 + bge-reranker-v2-m3 → ./models
 make pull-llm   # qwen2.5:32b → the ollama volume
 ```
 
+**Pick a model that fits your hardware.** Generation speed is dominated by where the
+LLM runs; embeddings + reranking are lightweight by comparison.
+
+| Hardware | Recommended `OLLAMA_MODEL` | Observed query latency |
+|---|---|---|
+| 24 GB+ GPU (via the toolkit below) | `qwen2.5:32b` | seconds |
+| CPU-only, 32+ cores / 64 GB RAM | `qwen2.5:7b` | ~25–80 s |
+| CPU-only, running `qwen2.5:32b` | not recommended | ~5 min per query |
+
+Set `OLLAMA_MODEL` in `.env`, then `docker compose exec ollama ollama pull <model>` and
+`docker compose up -d backend` to apply. A query issued while a pull is still in
+progress fails with a 500 (`model '…' not found`) — wait for the model to appear in
+`docker compose exec ollama ollama list`.
+
+<details>
+<summary><b>GPU acceleration (NVIDIA)</b></summary>
+
+The base compose file runs Ollama on CPU. To serve the LLM from an NVIDIA GPU:
+
+1. Install the container toolkit and register the runtime (online step, needs sudo):
+
+   ```bash
+   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+     | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+   curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+     | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+     | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+   sudo nvidia-ctk runtime configure --runtime=docker
+   sudo systemctl restart docker            # bounces the stack; containers auto-recover
+   ```
+
+2. Grant the `ollama` service GPU access via `docker-compose.override.yml`
+   (Compose picks this file up automatically):
+
+   ```yaml
+   services:
+     ollama:
+       deploy:
+         resources:
+           reservations:
+             devices:
+               - driver: nvidia
+                 count: all
+                 capabilities: [gpu]
+   ```
+
+3. Recreate and verify:
+
+   ```bash
+   docker compose up -d ollama backend
+   docker compose exec ollama nvidia-smi   # the GPU should be visible in-container
+   ```
+
+</details>
+
 ### 3 · Launch
 
 ```bash
@@ -335,6 +391,20 @@ npm install && npm run typecheck && npm run build
 | **Eval gate** | `python eval/ci_gate.py --suite both` | Local models only. |
 
 CI (`.github/workflows/ci.yml`) runs lint → strict type-check → migrations → tests → the local-model eval gate on every push.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `POST /query` → 500, backend log says `model '…' not found` | The Ollama model is still pulling (or `OLLAMA_MODEL` names a model that was never pulled). | Wait for `docker compose exec ollama ollama list` to show the model, or pull it. |
+| Document upload → 500, backend log says `PermissionError: … '/data/faiss'` | The `aegis_data` volume was created root-owned; the backend runs as the non-root `aegis` user. | `docker compose exec -u root backend chown -R aegis:aegis /data` (one-time). |
+| Login → 401 right after provisioning | `seed_admin.py` refuses to run without `SEED_ADMIN_PASSWORD`; the admin password is whatever you passed there — there is no default. | Re-run the seed step with the credentials you want (it is idempotent for roles). |
+| `/health/ready` reports `faiss/embedder/reranker: false` | Model singletons load lazily on first use, not at startup. | Expected before the first ingest/query; they flip to `true` afterward and stay loaded. |
+| Queries answer but take minutes | The LLM is running on CPU. | Use a smaller `OLLAMA_MODEL`, or enable the GPU (see Quickstart § GPU acceleration). |
+| Host port conflicts (5432/11434 already in use) | Another Postgres/Ollama on the host. | Remap only the **host** side in `docker-compose.yml` (e.g. `5433:5432`, `11435:11434`) — inter-service traffic uses the container ports on the private network. |
+| "Summarize the uploaded document" → *insufficient evidence* | Retrieval is content-driven; a query with no topical terms retrieves nothing relevant, and CRAG refuses rather than guess. | Ask about the document's *content* (topics, names, terms that appear in it). |
 
 ---
 
