@@ -196,6 +196,116 @@ async def test_insufficient_evidence_when_no_accessible_docs(
     assert body["faithful"] is False
     assert body["citations"] == []
 
+    # The response contract is unchanged (§6.9: explicit insufficient evidence,
+    # never an error), but a query that could reach no content is audited as
+    # query.denied rather than query.executed (§6.15).
+    denied = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.action == "query.denied")))
+        .scalars()
+        .all()
+    )
+    assert len(denied) == 1
+    assert denied[0].outcome == "denied"
+    assert denied[0].details["reason"] == "no_accessible_documents"
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(AuditLog).where(AuditLog.action == "query.executed")
+        )
+    ) == 0
+
+
+@pytest.mark.asyncio
+async def test_caller_supplied_top_k_is_honoured(
+    pipeline_env: None,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`top_k` in the request reaches hybrid_retrieve instead of being ignored."""
+    pw = "pw-12345678"
+    _patch(monkeypatch, _FakeLLM(relevant=True, rel_score=0.9, faith=0.95))
+    user = await _viewer(db_session, pw)
+    await _ingest_viewer_doc(db_session, tmp_path, user)
+
+    seen: list[int] = []
+    real_retrieve = hybrid.hybrid_retrieve
+
+    async def _spy(db, *, query, user, top_k):  # type: ignore[no-untyped-def]
+        seen.append(top_k)
+        return await real_retrieve(db, query=query, user=user, top_k=top_k)
+
+    monkeypatch.setattr("app.graph.nodes.retrieve.hybrid_retrieve", _spy)
+
+    token = await _login(client, pw)
+    resp = await client.post(
+        "/api/v1/query",
+        json={"query": "what are the projections?", "top_k": 5},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert seen == [5], f"expected top_k=5 to reach retrieval, saw {seen}"
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_top_k_is_rejected(
+    pipeline_env: None,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """top_k is bounded so a request cannot force an unbounded fan-out."""
+    pw = "pw-12345678"
+    _patch(monkeypatch, _FakeLLM())
+    await _viewer(db_session, pw)
+    token = await _login(client, pw)
+
+    for bad in (0, -1, 10_000):
+        resp = await client.post(
+            "/api/v1/query",
+            json={"query": "x", "top_k": bad},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422, f"top_k={bad} should be refused"
+
+
+@pytest.mark.asyncio
+async def test_stream_reassembles_to_the_graded_answer(
+    pipeline_env: None,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SSE frames reassemble into exactly the answer in the final done payload."""
+    pw = "pw-12345678"
+    _patch(monkeypatch, _FakeLLM(relevant=True, rel_score=0.9, faith=0.95))
+    user = await _viewer(db_session, pw)
+    await _ingest_viewer_doc(db_session, tmp_path, user)
+
+    token = await _login(client, pw)
+    resp = await client.post(
+        "/api/v1/query/stream",
+        json={"query": "what are the projections?"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+    streamed, final = "", None
+    for frame in resp.text.split("\n\n"):
+        if not frame.strip():
+            continue
+        payload = "\n".join(
+            line[5:].removeprefix(" ") for line in frame.split("\n") if line.startswith("data:")
+        )
+        if frame.startswith("event: done"):
+            final = json.loads(payload)
+        else:
+            streamed += payload
+
+    assert final is not None, "stream never emitted a done frame"
+    assert streamed == final["answer"]
+
 
 @pytest.mark.asyncio
 async def test_low_faithfulness_finalizes_unfaithful(

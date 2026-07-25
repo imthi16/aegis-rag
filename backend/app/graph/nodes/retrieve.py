@@ -15,7 +15,7 @@ from app.retrieval.hybrid import hybrid_retrieve
 async def retrieve_node(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     deps = get_deps(config)
     settings = get_settings()
-    candidates = await hybrid_retrieve(
-        deps.db, query=state["query"], user=deps.user, top_k=settings.retrieval_top_k
-    )
+    # Caller-supplied top_k (validated at the API boundary) overrides the default.
+    top_k = state.get("top_k") or settings.retrieval_top_k
+    candidates = await hybrid_retrieve(deps.db, query=state["query"], user=deps.user, top_k=top_k)
     return {"candidates": candidates, "insufficient_evidence": len(candidates) == 0}

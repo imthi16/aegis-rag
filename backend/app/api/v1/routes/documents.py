@@ -9,8 +9,8 @@ POST   /documents/{id}/reindex rebuild indexes (admin)
 
 from __future__ import annotations
 
+import asyncio
 import os
-import tempfile
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
@@ -21,6 +21,7 @@ from app.audit.logger import write_audit
 from app.core.config import get_settings
 from app.core.dependencies import get_current_user, get_db, require_roles
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationAppError
+from app.core.logging import get_logger
 from app.db.models.document import Document
 from app.db.models.user import User
 from app.ingestion.pipeline import (
@@ -28,8 +29,14 @@ from app.ingestion.pipeline import (
     ingest_document,
     rebuild_bm25_from_db,
 )
+from app.ingestion.pipeline import reindex_document as reindex_doc
 from app.rbac.classifications import Classification, Role
-from app.rbac.enforcement import allowed_document_ids, is_document_visible, user_role_set
+from app.rbac.enforcement import (
+    allowed_document_ids,
+    is_document_visible,
+    unassignable_roles,
+    user_role_set,
+)
 from app.retrieval.faiss_store import get_faiss_store
 from app.schemas.document import (
     DeleteResponse,
@@ -42,10 +49,19 @@ from app.schemas.document import (
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
+logger = get_logger("app.documents")
+
 
 def _ctx(request: Request) -> tuple[str | None, str]:
     ip = request.client.host if request.client else None
     return ip, str(request.state.request_id)
+
+
+def _write_original(path: str, data: bytes) -> None:
+    """Persist an uploaded original to the retained-documents volume."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(data)
 
 
 def _summary(doc: Document) -> DocumentSummary:
@@ -89,10 +105,22 @@ async def upload(
     except ValueError as exc:
         raise ValidationAppError("Invalid allowed role.") from exc
 
-    fd, path = tempfile.mkstemp(suffix=f".{ext}")
+    # §6.18: an uploader may only grant roles within its own authority. Enforced
+    # here (not just in the UI) so the API cannot be used to widen a document's
+    # audience beyond the uploader's own access.
+    forbidden = unassignable_roles(user, roles)
+    if forbidden:
+        raise ForbiddenError(
+            "You may not grant access to roles you do not hold: "
+            + ", ".join(sorted(r.value for r in forbidden))
+        )
+
+    # Retain the original so the document can be re-parsed and re-embedded later
+    # (POST /documents/{id}/reindex). Stays inside the perimeter.
+    path = os.path.join(settings.document_storage_path, f"{uuid.uuid4()}.{ext}")
     try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
+        # Off the event loop: writing up to UPLOAD_MAX_SIZE_MB is blocking I/O.
+        await asyncio.to_thread(_write_original, path, data)
         doc = await ingest_document(
             db,
             file_path=path,
@@ -102,10 +130,15 @@ async def upload(
             allowed_roles=roles,
             uploaded_by=user.id,
         )
-    finally:
-        # The original bytes are not retained beyond ingestion in this build.
+    except Exception:
         if os.path.exists(path):
             os.remove(path)
+        raise
+
+    # Deduped against an existing document → our freshly stored copy is
+    # redundant (the original upload's copy is the one on record).
+    if doc.source_path != path and os.path.exists(path):
+        os.remove(path)
 
     return UploadResponse(
         id=doc.id,
@@ -193,6 +226,7 @@ async def delete_document(
         raise NotFoundError("Document not found.")
 
     faiss_ids = await document_faiss_ids(db, doc.id)
+    source_path = doc.source_path
     ip, rid = _ctx(request)
     await db.delete(doc)  # cascade removes chunks
     await write_audit(
@@ -209,12 +243,18 @@ async def delete_document(
     )
     await db.commit()
 
-    # Post-commit asset cleanup: drop vectors + rebuild lexical index.
+    # Post-commit asset cleanup: drop vectors, rebuild lexical index, and remove
+    # the retained original so a delete leaves no content behind.
     store = get_faiss_store()
     if faiss_ids:
         store.remove(faiss_ids)
         store.save()
     await rebuild_bm25_from_db(db)
+    if source_path and os.path.exists(source_path):
+        try:
+            os.remove(source_path)
+        except OSError:
+            logger.warning("stored_original_unlink_failed", document_id=str(document_id))
     return DeleteResponse()
 
 
@@ -233,9 +273,16 @@ async def reindex_document(
     if doc is None:
         raise NotFoundError("Document not found.")
 
-    # Rebuild the lexical index from the source of truth; full vector
-    # re-embedding runs here when the embedder/weights are present.
-    await rebuild_bm25_from_db(db)
+    # Full rebuild of both channels: re-parse the stored original, re-chunk,
+    # re-embed into FAISS, swap the chunk rows, rebuild BM25.
+    try:
+        chunk_count = await reindex_doc(db, doc)
+    except FileNotFoundError as exc:
+        raise ValidationAppError(
+            "The stored original for this document is unavailable, so it cannot "
+            "be reindexed. Re-upload the document instead."
+        ) from exc
+
     ip, rid = _ctx(request)
     await write_audit(
         db,
@@ -247,7 +294,7 @@ async def reindex_document(
         outcome="success",
         ip=ip,
         request_id=rid,
-        details={"filename": doc.filename},
+        details={"filename": doc.filename, "chunk_count": chunk_count},
     )
     await db.commit()
     return ReindexResponse()

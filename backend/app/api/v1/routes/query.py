@@ -25,6 +25,7 @@ from app.db.models.query_log import QueryLog
 from app.db.models.user import User
 from app.graph.pipeline import get_graph
 from app.graph.state import GraphState
+from app.rbac.enforcement import allowed_document_ids
 from app.schemas.query import (
     CitationOut,
     DocGrade,
@@ -39,10 +40,21 @@ _PREVIEW = 200
 
 
 async def _run_query(
-    db: AsyncSession, user: User, request: Request, query_text: str
+    db: AsyncSession,
+    user: User,
+    request: Request,
+    query_text: str,
+    top_k: int | None = None,
 ) -> QueryResponse:
     t0 = time.perf_counter()
     rid = str(request.state.request_id)
+
+    # RBAC visibility is computed here purely to classify the audit outcome. The
+    # response contract is unchanged (§6.9: an empty allowed set yields an
+    # explicit insufficient-evidence answer, never an error), but a query that
+    # could reach no content at all is recorded as ``query.denied`` rather than
+    # ``query.executed`` (§6.15 audited actions).
+    has_visible_documents = bool(await allowed_document_ids(db, user))
 
     initial: GraphState = {
         "query": query_text,
@@ -52,6 +64,8 @@ async def _run_query(
         "regen_attempts": 0,
         "audit_request_id": rid,
     }
+    if top_k is not None:
+        initial["top_k"] = top_k
     config: RunnableConfig = {
         "configurable": {"db": db, "user": user, "request_id": rid},
         "recursion_limit": 25,
@@ -112,16 +126,17 @@ async def _run_query(
         db,
         actor_id=user.id,
         actor_roles=user.role_names,
-        action="query.executed",
+        action="query.executed" if has_visible_documents else "query.denied",
         resource_type="query",
         resource_id=str(query_log.id),
-        outcome="success",
+        outcome="success" if has_visible_documents else "denied",
         ip=request.client.host if request.client else None,
         request_id=rid,
         details={
             "insufficient_evidence": insufficient,
             "faithful": faithful,
             "correction_applied": correction_applied,
+            **({} if has_visible_documents else {"reason": "no_accessible_documents"}),
         },
     )
     await db.commit()
@@ -147,7 +162,32 @@ async def query(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
-    return await _run_query(db, user, request, body.query)
+    return await _run_query(db, user, request, body.query, body.top_k)
+
+
+def _sse_frame(data: str, event: str | None = None) -> str:
+    """Encode one SSE frame, splitting embedded newlines across ``data:`` lines.
+
+    Emits the single space after ``data:`` that the SSE grammar defines as a
+    delimiter, because consumers strip exactly one — so a payload that itself
+    begins with a space survives the round trip. (Omitting it would make the
+    first payload space indistinguishable from the delimiter.) Splitting on
+    newlines is what preserves them: the previous implementation appended a space
+    to every token and dropped line structure from what the user saw.
+    """
+    lines = "".join(f"data: {line}\n" for line in data.split("\n"))
+    prefix = f"event: {event}\n" if event else ""
+    return f"{prefix}{lines}\n"
+
+
+def _reveal_chunks(text: str, size: int = 24) -> list[str]:
+    """Split an answer into fixed-size pieces for progressive reveal.
+
+    Concatenating the pieces reproduces ``text`` exactly.
+    """
+    if not text:
+        return []
+    return [text[i : i + size] for i in range(0, len(text), size)]
 
 
 @router.post("/stream")
@@ -157,11 +197,24 @@ async def query_stream(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    response = await _run_query(db, user, request, body.query)
+    """SSE variant of ``POST /query``.
+
+    The graph runs to completion first — including faithfulness grading — and the
+    finished answer is then revealed progressively. This is deliberate: streaming
+    raw LLM tokens would put ungraded text in front of the user, and an answer
+    that grading later flags ``faithful=false`` must never have already been
+    rendered as trusted (Golden Rules 4 & 6). The final ``done`` frame carries the
+    authoritative QueryResponse.
+    """
+    response = await _run_query(db, user, request, body.query, body.top_k)
 
     async def _events() -> AsyncIterator[str]:
-        for token in response.answer.split(" "):
-            yield f"data: {token} \n\n"
-        yield f"event: done\ndata: {response.model_dump_json()}\n\n"
+        for piece in _reveal_chunks(response.answer):
+            yield _sse_frame(piece)
+        yield _sse_frame(response.model_dump_json(), event="done")
 
-    return StreamingResponse(_events(), media_type="text/event-stream")
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

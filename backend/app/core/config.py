@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 64
     allowed_file_types: str = "pdf,docx,txt,md,html"
     upload_max_size_mb: int = 50
+    # Where uploaded originals are retained so a document can be re-parsed and
+    # re-embedded by /documents/{id}/reindex. Backed by the same volume as the
+    # indexes; never leaves the perimeter.
+    document_storage_path: str = "/data/documents"
 
     # ── Auth (JWT) ──────────────────────────────────────
     jwt_secret_key: str = "CHANGE_ME_64_CHAR_RANDOM_HEX"

@@ -156,7 +156,7 @@ flowchart LR
     E3 --> E4["#4 · …"]
 ```
 
-- **Append-only, twice over** — a `BEFORE UPDATE/DELETE` trigger raises, *and* the app writes through a least-privilege `aegis_audit` role granted only `INSERT, SELECT`.
+- **Append-only at the database layer** — a `BEFORE UPDATE/DELETE` trigger raises for *every* role, including the table owner, so no application bug or compromised app credential can rewrite history. A least-privilege `aegis_audit` role (granted only `INSERT, SELECT`) is provisioned for out-of-band audit access; the app itself writes on its normal session so each record commits atomically with the operation that caused it.
 - **Fail-closed** — if the audit write fails, the triggering operation fails with it. There is no un-audited path.
 - **Independently verifiable** — `GET /api/v1/audit/verify` recomputes every link and reports `{ ok, total, first_broken_id, broken_field }`, so a single altered byte is located precisely.
 
@@ -342,9 +342,9 @@ CI (`.github/workflows/ci.yml`) runs lint → strict type-check → migrations �
 
 - **Secrets** live only in `.env` (git-ignored); production refuses to boot on placeholder values.
 - **Tokens** stay in memory on the client; refresh rotates on use.
-- **Audit log** is append-only & hash-chained — mutation is blocked by a DB trigger *and* the least-privilege `aegis_audit` role; `verify_chain` recomputes every link and reports the first break.
+- **Audit log** is append-only & hash-chained — a DB trigger blocks `UPDATE`/`DELETE` for every role, and `verify_chain` recomputes each link so tampering by anyone who bypasses it is still detectable.
 - **Fail closed** — any auth / RBAC / audit error denies and logs; it never default-allows.
-- **Zero egress** is proven by `docker-compose.airgap.yml`: internal-only network, empty DNS, dropped capabilities, and no published ports except the frontend.
+- **Zero egress** is enforced by `docker-compose.airgap.yml`: every service on an `internal: true` network with no gateway, DNS pinned off, capabilities dropped, and no published ports except the frontend. Asserted — not assumed — by `tests/integration/test_airgap_compose.py`, which resolves the real `docker compose config` and fails if any service is reachable beyond the internal network.
 
 📚 Deeper docs: [architecture](./docs/architecture.md) · [compliance mapping](./docs/compliance-mapping.md) · [threat model](./docs/threat-model.md) · [air-gap runbook](./docs/runbook-airgap-provisioning.md).
 

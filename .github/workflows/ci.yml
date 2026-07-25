@@ -57,6 +57,14 @@ jobs:
       - name: Ruff (format check)
         run: ruff format --check .
 
+      # The backend steps above run from ./backend, so repo-root Python (the CI
+      # eval gate, provisioning scripts) would otherwise never be linted.
+      - name: Ruff (repo-root scripts)
+        working-directory: .
+        run: |
+          ruff check --config backend/pyproject.toml eval infra/scripts
+          ruff format --check --config backend/pyproject.toml eval infra/scripts
+
       - name: mypy (strict)
         run: mypy app
 

@@ -25,11 +25,10 @@ _BACKEND = Path(__file__).resolve().parents[2] / "backend"
 if _BACKEND.is_dir() and str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
-from sqlalchemy import select  # noqa: E402
-
 from app.core.security import hash_password  # noqa: E402
 from app.db.models import Role, User  # noqa: E402
 from app.db.session import AsyncSessionLocal, dispose_engines  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 DEFAULT_ROLES: list[tuple[str, str]] = [
     ("admin", "Full administrative access; sees all documents."),
@@ -80,10 +79,9 @@ async def _ensure_admin(session, roles: dict[str, Role]) -> None:  # type: ignor
 async def main() -> int:
     print(">> Seeding default roles + first admin")
     try:
-        async with AsyncSessionLocal() as session:
-            async with session.begin():
-                roles = await _ensure_roles(session)
-                await _ensure_admin(session, roles)
+        async with AsyncSessionLocal() as session, session.begin():
+            roles = await _ensure_roles(session)
+            await _ensure_admin(session, roles)
         print(">> Done.")
         return 0
     finally:
