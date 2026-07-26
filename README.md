@@ -17,6 +17,12 @@
 ![Typed](https://img.shields.io/badge/typing-mypy%20strict%20%7C%20TS%20strict-2b9348)
 ![License](https://img.shields.io/badge/status-reference%20build-6E56CF)
 
+<br/>
+
+**Air-gapped** — inference, embeddings, and index run on-premise; nothing leaves.<br/>
+**Hash-chained audit** — every access appends to a tamper-evident record.<br/>
+**Cited or refused** — each claim traces to a source span, or the system declines.
+
 </div>
 
 ---
@@ -30,6 +36,7 @@
 - [Access control, enforced at retrieval](#access-control-enforced-at-retrieval)
 - [The tamper-evident audit ledger](#the-tamper-evident-audit-ledger)
 - [The interface](#the-interface)
+- [See it work](#see-it-work)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
 - [Tech stack](#tech-stack)
@@ -166,15 +173,130 @@ flowchart LR
 
 A dark **"Sovereign Instrument"** console — designed to read as instrumentation for an operator, not a generic dashboard. Monospace carries the data (hashes, IDs, scores); color is *earned*, appearing only where it encodes classification or trust.
 
+<p align="center">
+  <img src="./docs/screenshots/interrogate-schematic.svg" alt="Interrogate screen: command rail, a trust-sealed answer with citation chips, and the evidence rail showing the faithfulness gauge, CRAG document grades, and retrieved spans" width="100%">
+</p>
+
+<p align="center">
+  <sub><b>Interrogate</b> — the answer never arrives alone. The trust seal, the citation chips, and the evidence rail are all part of the response.</sub>
+</p>
+
+> **Note** — the image above is a *schematic*, drawn to scale from the real components. Actual captures are generated from a running deployment (see below) rather than committed by hand, so they can never drift from the shipped UI.
+
 | Screen | What it does |
 |---|---|
 | **Terminal (login)** | Operator sign-in; a live "air-gapped · zero egress" status readout. |
-| **Interrogate (chat)** | Ask the corpus; answers stream in with a **trust seal**, citation chips, and an **evidence rail** showing the faithfulness gauge, CRAG document grades, and retrieved spans. |
+| **Interrogate (chat)** | Ask the corpus; answers arrive with a **trust seal**, citation chips, and an **evidence rail** showing the faithfulness gauge, CRAG document grades, and retrieved spans. |
 | **Corpus (documents)** | RBAC-filtered document list; upload with a classification + allowed-roles selector. |
 | **Ledger (audit)** | The hash chain as a visual spine — linked entries with truncated hashes and a one-click **Verify chain**. |
-| **Evaluation** | Trigger RAGAS + local-evaluator runs and read faithfulness / hallucination metric cards. |
+| **Evaluation** | Trigger RAGAS + local-evaluator runs and read faithfulness / hallucination metric cards, live while a run is still grading. |
 
-Built to a quality floor: strict TypeScript, keyboard-focus visible, reduced-motion respected, responsive to mobile.
+Built to a quality floor: strict TypeScript, keyboard focus visible, reduced motion respected, responsive to mobile.
+
+<details>
+<summary><b>Capture the real screenshots</b></summary>
+
+With the stack up and an operator seeded:
+
+```bash
+npm i -D playwright@1.48.2 && npx playwright install chromium   # one-time, online
+AEGIS_USER=admin AEGIS_PASSWORD='…' make screenshots
+```
+
+Writes to `docs/screenshots/` at 2× device scale with reduced motion forced, so captures are deterministic:
+
+| File | Screen |
+|---|---|
+| `01-login.png` | Terminal / sign-in |
+| `02-interrogate-empty.png` | Chat, empty state |
+| `03-interrogate-answered.png` | Chat with a graded, cited answer + evidence rail |
+| `04-corpus.png` | RBAC-filtered document list |
+| `05-ledger.png` | Audit chain + verification |
+| `06-evaluation.png` | Eval runs and metric cards |
+| `07-mobile-nav.png` | Mobile navigation drawer |
+
+Screens your roles don't permit are skipped with a note rather than failing the run. Point it elsewhere with `AEGIS_URL`, and set the demo question with `AEGIS_QUERY`.
+</details>
+
+---
+
+## See it work
+
+The whole product is one loop: **restricted ingest → role-scoped query → verifiable audit.** Here it is against the API.
+
+```bash
+# 1 · Authenticate
+TOKEN=$(curl -s localhost:8000/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"analyst","password":"…"}' | jq -r .access_token)
+
+# 2 · Ingest a document that only analysts may retrieve
+curl -s localhost:8000/api/v1/documents \
+  -H "authorization: Bearer $TOKEN" \
+  -F file=@hipaa-controls.pdf \
+  -F classification=confidential \
+  -F 'allowed_roles=analyst'
+
+# 3 · Ask
+curl -s localhost:8000/api/v1/query \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"query":"What controls satisfy HIPAA audit requirements?"}'
+```
+
+The response carries its own evidence — *field shapes are exact; values are illustrative*:
+
+```jsonc
+{
+  "answer": "Audit controls require hardware, software, and procedural mechanisms that
+             record and examine activity in systems containing ePHI [1]. Aegis satisfies
+             this with an append-only, hash-chained audit_log covering authentication,
+             query, and document events [2].",
+  "insufficient_evidence": false,
+  "faithful": true,               // ← graded before you ever see the answer
+  "faithfulness_score": 0.86,     // ← gated at FAITHFULNESS_THRESHOLD (0.70)
+  "citations": [
+    { "marker": 1, "document_id": "a3f91c04-…", "chunk_id": "7b20de55-…",
+      "page_number": 4, "char_start": 1203, "char_end": 1487,
+      "snippet": "§164.312(b) Audit controls. Implement hardware, software…" }
+  ],
+  "doc_grades": [                 // ← CRAG relevance grading, per candidate
+    { "chunk_id": "7b20de55-…", "relevant": true,  "score": 0.94 },
+    { "chunk_id": "c118a0b9-…", "relevant": false, "score": 0.31 }
+  ],
+  "correction_applied": false,    // ← true when the query was rewritten and re-retrieved
+  "latency_ms": 4210,
+  "request_id": "b7c1…"
+}
+```
+
+**When the corpus can't support an answer, that is the answer.** No fabrication, no reaching outside the perimeter:
+
+```jsonc
+{
+  "answer": "I don't have enough information in the provided sources to answer that.",
+  "insufficient_evidence": true,
+  "faithful": false,
+  "citations": []
+}
+```
+
+**Then prove the trail.** Every step above appended a link to the chain:
+
+```bash
+curl -s localhost:8000/api/v1/audit/verify -H "authorization: Bearer $ADMIN_TOKEN"
+```
+
+```jsonc
+{ "ok": true, "total": 1284, "first_broken_id": null, "broken_field": null }
+```
+
+Alter a single byte of any `details` payload and the same call pins the exact entry:
+
+```jsonc
+{ "ok": false, "total": 1284, "first_broken_id": 907, "broken_field": "entry_hash" }
+```
+
+> **The RBAC proof.** Repeat step 3 as a `viewer` who lacks the `analyst` role and the restricted document is not merely hidden from the answer — it was never a retrieval candidate. It cannot appear in a citation, a rerank candidate, or a log line.
 
 ---
 
@@ -334,7 +456,12 @@ npm install && npm run typecheck && npm run build
 | **Integration** | `TEST_DATABASE_URL=postgresql+asyncpg://… pytest tests/integration` | Skips unless a reachable asyncpg DSN is set (use a throwaway DB — tables are dropped/recreated). |
 | **Eval gate** | `python eval/ci_gate.py --suite both` | Local models only. |
 
-CI (`.github/workflows/ci.yml`) runs lint → strict type-check → migrations → tests → the local-model eval gate on every push.
+CI (`.github/workflows/ci.yml`) runs two jobs on every push:
+
+- **Backend** — ruff lint → ruff format check → `mypy --strict` → `alembic upgrade head` → pytest (against a real Postgres service) → the local-model eval gate.
+- **Frontend** — `npm ci` → `tsc --noEmit` → `vite build`.
+
+Both run with `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` / `HF_DATASETS_OFFLINE=1` set, so an accidental Hub or telemetry call fails the build rather than passing quietly.
 
 ---
 

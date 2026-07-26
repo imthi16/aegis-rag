@@ -112,10 +112,16 @@ export interface ChainReport {
   broken_field: string | null;
 }
 
+// A run is graded in the background, so `passed` alone is ambiguous: a run that
+// is still working and a run that finished below the gate both report false.
+// Read `status` first, and only treat `passed` as a verdict once it is settled.
+export type EvalStatus = "running" | "completed" | "failed";
+
 export interface EvalRunSummary {
   id: string;
   suite: string;
   dataset: string;
+  status: EvalStatus;
   passed: boolean;
   faithfulness_avg: number | null;
   hallucination_rate: number | null;

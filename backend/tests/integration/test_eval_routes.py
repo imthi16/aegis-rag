@@ -186,6 +186,90 @@ async def test_failed_run_is_recorded_not_left_running(
 
 
 @pytest.mark.asyncio
+async def test_list_reports_status_so_running_is_not_read_as_failed(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The listing carries the lifecycle status, not just ``passed``.
+
+    A run starts with ``passed=false`` and only settles when grading finishes, so
+    a client reading ``passed`` alone renders an in-flight run as a failure. The
+    list endpoint is what the eval UI polls, so the status has to be on it.
+    """
+    pw = "admin-pass-123"
+    await _admin(db_session, pw)
+    monkeypatch.setattr(
+        eval_routes,
+        "run_ragas",
+        lambda dataset: RagasResult(
+            faithfulness=0.9, answer_relevancy=0.9, context_precision=0.9, context_recall=0.9
+        ),
+    )
+    headers = {"Authorization": f"Bearer {await _token(client, pw)}"}
+    await client.post("/api/v1/eval/run", json={"suite": "ragas"}, headers=headers)
+
+    item = (await client.get("/api/v1/eval/runs", headers=headers)).json()["items"][0]
+    assert item["status"] == eval_routes.STATUS_COMPLETED
+    assert item["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_crashed_run_reports_failed_status_on_the_listing(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A crashed suite is distinguishable from one that merely missed the gate."""
+    pw = "admin-pass-123"
+    await _admin(db_session, pw)
+
+    def _boom(dataset: str) -> RagasResult:
+        raise RuntimeError("ollama unreachable")
+
+    monkeypatch.setattr(eval_routes, "run_ragas", _boom)
+    headers = {"Authorization": f"Bearer {await _token(client, pw)}"}
+    await client.post("/api/v1/eval/run", json={"suite": "ragas"}, headers=headers)
+
+    item = (await client.get("/api/v1/eval/runs", headers=headers)).json()["items"][0]
+    assert item["status"] == eval_routes.STATUS_FAILED
+    assert item["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_row_without_a_status_reads_as_completed(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+) -> None:
+    """Rows predating async runs carry no status and must not read as 'running'.
+
+    They were graded inline before the response returned, so their metrics are
+    final; reporting them as in-flight would leave the UI polling forever.
+    """
+    pw = "admin-pass-123"
+    await _admin(db_session, pw)
+    db_session.add(
+        EvalRun(
+            suite="ragas",
+            dataset="legacy.jsonl",
+            metrics={"ragas": {"faithfulness": 0.9}},
+            faithfulness_avg=0.9,
+            hallucination_rate=0.05,
+            passed=True,
+        )
+    )
+    await db_session.commit()
+
+    headers = {"Authorization": f"Bearer {await _token(client, pw)}"}
+    item = (await client.get("/api/v1/eval/runs", headers=headers)).json()["items"][0]
+    assert item["status"] == eval_routes.STATUS_COMPLETED
+    assert item["passed"] is True
+
+
+@pytest.mark.asyncio
 async def test_eval_run_is_audited_before_the_work_starts(
     client: AsyncClient,
     db_session: AsyncSession,

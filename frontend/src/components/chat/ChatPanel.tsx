@@ -1,4 +1,5 @@
-import { CornerDownLeft, Radar, Search } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { CornerDownLeft, Radar, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
@@ -25,6 +26,7 @@ const SAMPLES = [
 export function ChatPanel(): JSX.Element {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const { answer, response, loading, error, ask } = useQueryStream();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +108,53 @@ export function ChatPanel(): JSX.Element {
             )}
           </div>
         </div>
+
+        {/* Evidence access below lg, where the rail is hidden. The grading is
+            the basis of the answer (§6.18) — it must stay reachable, not just
+            disappear at narrow widths. */}
+        {response && (
+          <div className="border-t border-edge/12 bg-slab/50 px-4 py-2 lg:hidden">
+            <div className="mx-auto flex max-w-3xl justify-end">
+              <Dialog.Root open={evidenceOpen} onOpenChange={setEvidenceOpen}>
+                <Dialog.Trigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-md px-2 py-1 font-mono text-[10px] uppercase tracking-eyebrow text-fg-dim transition-colors hover:bg-raise hover:text-fg"
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    Evidence
+                    <span className="text-fg-faint">
+                      {response.retrieved_chunks.length} spans ·{" "}
+                      {response.faithfulness_score.toFixed(2)}
+                    </span>
+                  </button>
+                </Dialog.Trigger>
+                <Dialog.Portal>
+                  <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-ink/70 backdrop-blur-sm lg:hidden" />
+                  <Dialog.Content
+                    aria-describedby={undefined}
+                    className="fixed inset-y-0 right-0 z-50 flex w-[22rem] max-w-[92vw] animate-slide-up flex-col border-l border-edge/12 bg-slab shadow-lift focus:outline-none lg:hidden"
+                  >
+                    <div className="flex items-center justify-between border-b border-edge/12 px-5 py-3.5">
+                      <Dialog.Title asChild>
+                        <div className="eyebrow">// Evidence</div>
+                      </Dialog.Title>
+                      <Dialog.Close
+                        aria-label="Close evidence"
+                        className="grid h-8 w-8 place-items-center rounded-md text-fg-faint hover:bg-raise hover:text-fg"
+                      >
+                        <X className="h-4 w-4" />
+                      </Dialog.Close>
+                    </div>
+                    <div className="scroll-slim flex-1 overflow-y-auto p-5">
+                      <EvidencePanel response={response} />
+                    </div>
+                  </Dialog.Content>
+                </Dialog.Portal>
+              </Dialog.Root>
+            </div>
+          </div>
+        )}
 
         {/* Command bar */}
         <div className="border-t border-edge/12 bg-slab/70 px-4 py-3.5 backdrop-blur md:px-8">

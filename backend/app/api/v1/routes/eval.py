@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy import func, select
@@ -34,6 +34,7 @@ from app.schemas.eval import (
     EvalRunListResponse,
     EvalRunRequest,
     EvalRunSummary,
+    EvalStatus,
 )
 from app.schemas.pagination import Pagination, pagination_params
 
@@ -45,15 +46,44 @@ _admin = require_roles(Role.ADMIN)
 
 # Run lifecycle, carried in the eval_runs.metrics JSONB so no migration is needed
 # to distinguish "still running" from "finished and failed the gate".
-STATUS_RUNNING = "running"
-STATUS_COMPLETED = "completed"
-STATUS_FAILED = "failed"
+STATUS_RUNNING: EvalStatus = "running"
+STATUS_COMPLETED: EvalStatus = "completed"
+STATUS_FAILED: EvalStatus = "failed"
 
 
 def _default_dataset() -> str:
     from app.eval import __file__ as eval_init
 
     return str(Path(eval_init).parent / "datasets" / "golden_qa.jsonl")
+
+
+def _status_of(run: EvalRun) -> EvalStatus:
+    """Read a run's lifecycle status out of the metrics blob.
+
+    Rows written before runs became asynchronous carry no status: they were
+    graded inline before the response returned, so ``completed`` is the truthful
+    reading for them. An unrecognised value is reported as ``failed`` rather than
+    guessed at — an unreadable run is not a passing one.
+    """
+    raw = (run.metrics or {}).get("status")
+    if raw in (STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED):
+        return cast(EvalStatus, raw)
+    return STATUS_COMPLETED if raw is None else STATUS_FAILED
+
+
+def _summary(run: EvalRun) -> EvalRunSummary:
+    return EvalRunSummary(
+        id=run.id,
+        suite=run.suite,
+        dataset=run.dataset,
+        status=_status_of(run),
+        passed=run.passed,
+        faithfulness_avg=float(run.faithfulness_avg) if run.faithfulness_avg is not None else None,
+        hallucination_rate=float(run.hallucination_rate)
+        if run.hallucination_rate is not None
+        else None,
+        created_at=run.created_at,
+    )
 
 
 def _execute_suites(suite: str, dataset: str) -> dict[str, Any]:
@@ -194,7 +224,7 @@ async def list_runs(
         .scalars()
         .all()
     )
-    return EvalRunListResponse(items=[EvalRunSummary.model_validate(r) for r in rows], total=total)
+    return EvalRunListResponse(items=[_summary(r) for r in rows], total=total)
 
 
 @router.get("/runs/{run_id}", response_model=EvalRunDetail)
@@ -210,6 +240,7 @@ async def get_run(
         id=run.id,
         suite=run.suite,
         dataset=run.dataset,
+        status=_status_of(run),
         passed=run.passed,
         faithfulness_avg=float(run.faithfulness_avg) if run.faithfulness_avg is not None else None,
         hallucination_rate=float(run.hallucination_rate)

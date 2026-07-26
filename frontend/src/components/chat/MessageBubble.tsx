@@ -52,6 +52,10 @@ export function MessageBubble({
   faithful = true,
   pending = false,
 }: MessageBubbleProps): JSX.Element {
+  // Declared before the user-role branch below: hooks must run in the same
+  // order on every render, so this cannot sit after an early return.
+  const tilt = useTilt<HTMLDivElement>(4.5);
+
   if (role === "user") {
     return (
       <div className="flex animate-slide-up justify-end">
@@ -64,7 +68,6 @@ export function MessageBubble({
 
   const trust = !pending ? trustState(insufficientEvidence, faithful) : null;
   const Icon = trust?.icon;
-  const tilt = useTilt<HTMLDivElement>(4.5);
 
   return (
     <div className="flex animate-slide-up justify-start">

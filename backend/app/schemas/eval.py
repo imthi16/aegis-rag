@@ -10,6 +10,12 @@ from pydantic import BaseModel, ConfigDict
 
 EvalSuite = Literal["ragas", "deepeval", "both"]
 
+# Lifecycle of a run. ``/eval/run`` returns 202 and grades in the background, so
+# "not passed" is ambiguous on its own — a run that is still working and a run
+# that finished below the gate both carry ``passed=false``. Callers must be able
+# to tell those apart, so the status is part of the contract, not an internal.
+EvalStatus = Literal["running", "completed", "failed"]
+
 
 class EvalRunRequest(BaseModel):
     dataset: str | None = None
@@ -26,6 +32,7 @@ class EvalRunSummary(BaseModel):
     id: uuid.UUID
     suite: str
     dataset: str
+    status: EvalStatus
     passed: bool
     faithfulness_avg: float | None
     hallucination_rate: float | None
