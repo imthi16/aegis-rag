@@ -46,6 +46,7 @@ from app.schemas.document import (
     ReindexResponse,
     UploadResponse,
 )
+from app.schemas.pagination import Pagination, pagination_params
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -152,15 +153,14 @@ async def upload(
 
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
-    page: int = 1,
-    size: int = 20,
     classification: str | None = None,
+    pg: Pagination = Depends(pagination_params),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentListResponse:
     allowed = await allowed_document_ids(db, user)
     if not allowed:
-        return DocumentListResponse(items=[], total=0, page=page, size=size)
+        return DocumentListResponse(items=[], total=0, page=pg.page, size=pg.size)
 
     conditions: list[ColumnElement[bool]] = [Document.id.in_(allowed)]
     if classification:
@@ -175,15 +175,15 @@ async def list_documents(
                 select(Document)
                 .where(*conditions)
                 .order_by(Document.created_at.desc())
-                .offset((page - 1) * size)
-                .limit(size)
+                .offset(pg.offset)
+                .limit(pg.size)
             )
         )
         .scalars()
         .all()
     )
     return DocumentListResponse(
-        items=[_summary(d) for d in rows], total=total, page=page, size=size
+        items=[_summary(d) for d in rows], total=total, page=pg.page, size=pg.size
     )
 
 

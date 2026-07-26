@@ -15,11 +15,14 @@ by anyone else *detectable*.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 from app.audit.logger import write_audit
 from app.audit.verifier import verify_chain
+from app.core.security import hash_password
+from app.db.models import Role, User
 from app.db.models.audit import AuditLog
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError
@@ -151,3 +154,86 @@ async def test_login_writes_audit_record(client, db_session: AsyncSession) -> No
     )
     assert len(rows) == 1
     assert rows[0].outcome == "denied"
+
+
+@pytest.mark.asyncio
+async def test_export_streams_jsonl(client, db_session: AsyncSession, app_sessions: None) -> None:
+    """The append-only export streams one JSON object per line (§7)."""
+    await _append_n(db_session, 3)
+    role = Role(name="admin", description="admin")
+    db_session.add(role)
+    await db_session.flush()
+    db_session.add(
+        User(username="auditor", hashed_password=hash_password("audit-pw-123"), roles=[role])
+    )
+    await db_session.commit()
+    tok = (
+        await client.post(
+            "/api/v1/auth/login", json={"username": "auditor", "password": "audit-pw-123"}
+        )
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {tok}"}
+
+    resp = await client.get("/api/v1/audit/export?format=jsonl", headers=headers)
+    assert resp.status_code == 200
+    lines = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+    assert len(lines) >= 3
+    assert {"id", "action", "entry_hash", "prev_hash"} <= set(lines[0])
+
+    # An unsupported format must be refused, not silently served as jsonl.
+    bad = await client.get("/api/v1/audit/export?format=csv", headers=headers)
+    assert bad.status_code == 422
+    assert bad.json()["error"]["code"] == "validation_error"
+
+
+@pytest.mark.asyncio
+async def test_export_does_not_leak_connections(
+    client, db_session: AsyncSession, db_engine, app_sessions: None
+) -> None:
+    """Repeated exports must return their connections to the pool.
+
+    Streaming from the request-scoped session leaked one connection per call:
+    FastAPI finalizes yield-dependencies before a StreamingResponse body is
+    consumed, so the connection was never checked back in. That exhausts the pool
+    and the orphaned transactions hold locks that block DDL on audit_log.
+    """
+    await _append_n(db_session, 2)
+    role = Role(name="admin", description="admin")
+    db_session.add(role)
+    await db_session.flush()
+    db_session.add(
+        User(username="leakcheck", hashed_password=hash_password("leak-pw-123"), roles=[role])
+    )
+    await db_session.commit()
+    tok = (
+        await client.post(
+            "/api/v1/auth/login", json={"username": "leakcheck", "password": "leak-pw-123"}
+        )
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {tok}"}
+
+    for _ in range(5):
+        resp = await client.get("/api/v1/audit/export", headers=headers)
+        assert resp.status_code == 200
+        assert resp.text.strip(), "export produced no rows"
+
+    # A leaked session leaves its backend parked inside a transaction.
+    async with db_engine.connect() as conn:
+        stranded = (
+            await conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() "
+                    "AND pid <> pg_backend_pid() "
+                    "AND state = 'idle in transaction'"
+                )
+            )
+        ).scalar_one()
+    assert stranded == 0, f"{stranded} backend(s) stranded in a transaction after exports"
+
+    # The consequence that actually bites: an orphaned transaction holds locks
+    # that block DDL on audit_log, i.e. migrations.
+    async with db_engine.begin() as conn:
+        await conn.execute(text("SET LOCAL lock_timeout='5s'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN _probe integer"))
+        await conn.execute(text("ALTER TABLE audit_log DROP COLUMN _probe"))

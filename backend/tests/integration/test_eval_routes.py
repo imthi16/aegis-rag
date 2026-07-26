@@ -3,9 +3,19 @@
 POST /eval/run persists an eval_runs row + eval.run audit; GET lists/details.
 RAGAS/DeepEval runners are monkeypatched (no Ollama needed); the wiring uses
 local models only in production.
+
+The suites run as a background task (they are blocking and LLM-graded, so running
+them inline would stall the event loop and make the documented 202 a lie). The
+worker opens its own session via ``AsyncSessionLocal`` because the request's
+session is gone by then, so tests must rebind that to the test engine — otherwise
+the completion write lands on the real DATABASE_URL and the row never updates
+here. ``ASGITransport`` awaits background tasks before returning, so assertions
+after the POST see the finished run.
 """
 
 from __future__ import annotations
+
+import threading
 
 import app.api.v1.routes.eval as eval_routes
 import pytest
@@ -34,7 +44,10 @@ async def _token(client: AsyncClient, pw: str) -> str:
 
 @pytest.mark.asyncio
 async def test_run_eval_persists_and_audits(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pw = "admin-pass-123"
     await _admin(db_session, pw)
@@ -70,6 +83,8 @@ async def test_run_eval_persists_and_audits(
     assert body["passed"] is True
     assert "ragas" in body["metrics"] and "deepeval" in body["metrics"]
     assert body["faithfulness_threshold"] == 0.7
+    # The run reports a terminal status so a poller can tell "done" from "running".
+    assert body["metrics"]["status"] == eval_routes.STATUS_COMPLETED
 
     # Persisted row + audit.
     assert (await db_session.execute(select(EvalRun))).scalars().all()
@@ -83,7 +98,10 @@ async def test_run_eval_persists_and_audits(
 
 @pytest.mark.asyncio
 async def test_low_faithfulness_marks_run_failed(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pw = "admin-pass-123"
     await _admin(db_session, pw)
@@ -99,3 +117,100 @@ async def test_low_faithfulness_marks_run_failed(
     assert run.status_code == 202
     detail = await client.get(f"/api/v1/eval/runs/{run.json()['run_id']}", headers=headers)
     assert detail.json()["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_eval_returns_immediately_without_blocking(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The suites must not execute on the event loop inside the request handler.
+
+    A runner that blocks its thread would stall every other request in the worker.
+    Asserting it runs off-loop: the runner records the thread it executed on, and
+    that must not be the loop's thread.
+    """
+    pw = "admin-pass-123"
+    await _admin(db_session, pw)
+
+    loop_thread = threading.current_thread().name
+    ran_on: list[str] = []
+
+    def _slow_ragas(dataset: str) -> RagasResult:
+        ran_on.append(threading.current_thread().name)
+        return RagasResult(
+            faithfulness=0.9, answer_relevancy=0.8, context_precision=0.8, context_recall=0.8
+        )
+
+    monkeypatch.setattr(eval_routes, "run_ragas", _slow_ragas)
+
+    headers = {"Authorization": f"Bearer {await _token(client, pw)}"}
+    resp = await client.post("/api/v1/eval/run", json={"suite": "ragas"}, headers=headers)
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
+
+    assert ran_on, "the suite never ran"
+    assert (
+        ran_on[0] != loop_thread
+    ), f"suite ran on the event-loop thread ({loop_thread}); it must be offloaded"
+
+
+@pytest.mark.asyncio
+async def test_failed_run_is_recorded_not_left_running(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A crashing suite must land on `failed`, not sit at `running` forever."""
+    pw = "admin-pass-123"
+    await _admin(db_session, pw)
+
+    def _boom(dataset: str) -> RagasResult:
+        raise RuntimeError("ollama unreachable")
+
+    monkeypatch.setattr(eval_routes, "run_ragas", _boom)
+
+    headers = {"Authorization": f"Bearer {await _token(client, pw)}"}
+    resp = await client.post("/api/v1/eval/run", json={"suite": "ragas"}, headers=headers)
+    assert resp.status_code == 202  # accepting the job still succeeded
+
+    detail = await client.get(f"/api/v1/eval/runs/{resp.json()['run_id']}", headers=headers)
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["metrics"]["status"] == eval_routes.STATUS_FAILED
+    assert body["metrics"]["error_type"] == "RuntimeError"
+    assert body["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_eval_run_is_audited_before_the_work_starts(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    app_sessions: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The eval.run audit record is written when the job is accepted (§6.15)."""
+    pw = "admin-pass-123"
+    await _admin(db_session, pw)
+    monkeypatch.setattr(
+        eval_routes,
+        "run_ragas",
+        lambda dataset: RagasResult(
+            faithfulness=0.9, answer_relevancy=0.9, context_precision=0.9, context_recall=0.9
+        ),
+    )
+    headers = {"Authorization": f"Bearer {await _token(client, pw)}"}
+    resp = await client.post("/api/v1/eval/run", json={"suite": "ragas"}, headers=headers)
+    run_id = resp.json()["run_id"]
+
+    audited = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.action == "eval.run")))
+        .scalars()
+        .all()
+    )
+    assert len(audited) == 1
+    assert audited[0].resource_id == run_id
+    assert audited[0].details["status"] == eval_routes.STATUS_RUNNING

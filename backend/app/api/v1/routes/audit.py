@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -22,6 +22,7 @@ from app.audit.verifier import verify_chain
 from app.core.dependencies import get_db, require_roles
 from app.db.models.audit import AuditLog
 from app.db.models.user import User
+from app.db.session import AsyncSessionLocal
 from app.rbac.classifications import Role
 from app.schemas.audit import AuditEntry, AuditListResponse, ChainReport
 
@@ -113,21 +114,34 @@ async def verify(
 
 @router.get("/export")
 async def export(
-    fmt: str = Query("jsonl", alias="format"),
+    # Only jsonl is supported (§7). Declared as a Literal so an unsupported value
+    # is refused at the boundary rather than silently served as jsonl anyway.
+    fmt: Literal["jsonl"] = Query("jsonl", alias="format"),
     from_: datetime | None = Query(None, alias="from"),
     to: datetime | None = None,
     user: User = Depends(_auditor),
-    db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
+    """Stream the audit trail as newline-delimited JSON.
+
+    The generator owns its own session rather than using the request-scoped one:
+    FastAPI finalizes ``yield`` dependencies when the handler returns, which for a
+    StreamingResponse happens *before* the body is consumed. Streaming from the
+    request session therefore left its connection checked out on every call — one
+    leaked connection per export, which exhausts the pool and holds locks that
+    block DDL (including migrations) on ``audit_log``. ``async with`` here returns
+    the connection deterministically, including when a client disconnects
+    mid-stream and Starlette closes the generator.
+    """
     filters = _build_filters(None, None, from_, to)
     stmt = select(AuditLog).order_by(AuditLog.id.asc())
     if filters:
         stmt = stmt.where(and_(*filters))
 
     async def _gen() -> AsyncIterator[str]:
-        result = await db.stream(stmt)
-        async for row in result.scalars():
-            yield AuditEntry.model_validate(row).model_dump_json() + "\n"
+        async with AsyncSessionLocal() as session:
+            result = await session.stream(stmt)
+            async for row in result.scalars():
+                yield AuditEntry.model_validate(row).model_dump_json() + "\n"
 
     return StreamingResponse(
         _gen(),

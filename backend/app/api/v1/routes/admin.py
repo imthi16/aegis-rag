@@ -30,6 +30,7 @@ from app.schemas.auth import (
     UserListResponse,
     UserSummary,
 )
+from app.schemas.pagination import Pagination, pagination_params
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -49,6 +50,21 @@ def _user_summary(user: User) -> UserSummary:
         roles=user.role_names,
         is_active=user.is_active,
     )
+
+
+async def _count_other_admins(db: AsyncSession, *, excluding: uuid.UUID) -> int:
+    """Active users other than ``excluding`` who still hold the admin role."""
+    stmt = (
+        select(func.count(func.distinct(User.id)))
+        .select_from(User)
+        .join(User.roles)
+        .where(
+            RoleModel.name == Role.ADMIN.value,
+            User.id != excluding,
+            User.is_active.is_(True),
+        )
+    )
+    return int((await db.execute(stmt)).scalar_one())
 
 
 async def _roles_by_name(db: AsyncSession, names: list[str]) -> list[RoleModel]:
@@ -104,8 +120,7 @@ async def create_user(
 
 @router.get("/users", response_model=UserListResponse)
 async def list_users(
-    page: int = 1,
-    size: int = 20,
+    pg: Pagination = Depends(pagination_params),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db),
 ) -> UserListResponse:
@@ -116,15 +131,15 @@ async def list_users(
                 select(User)
                 .options(selectinload(User.roles))
                 .order_by(User.created_at.desc())
-                .offset((page - 1) * size)
-                .limit(size)
+                .offset(pg.offset)
+                .limit(pg.size)
             )
         )
         .scalars()
         .all()
     )
     return UserListResponse(
-        items=[_user_summary(u) for u in rows], total=total, page=page, size=size
+        items=[_user_summary(u) for u in rows], total=total, page=pg.page, size=pg.size
     )
 
 
@@ -166,6 +181,30 @@ async def update_roles(
 
     if body.remove:
         remove_set = set(body.remove)
+        # Never allow the last admin to be demoted: with no admin left, role and
+        # document administration become impossible without direct DB access,
+        # which is precisely the auditable-access-control separation §11 requires
+        # for DIFC Reg 10 / FINMA. Fail closed and record the denial.
+        if Role.ADMIN.value in remove_set and Role.ADMIN.value in current:
+            remaining = await _count_other_admins(db, excluding=user.id)
+            if remaining == 0:
+                await write_audit(
+                    db,
+                    actor_id=admin.id,
+                    actor_roles=admin.role_names,
+                    action="role.revoked",
+                    resource_type="user",
+                    resource_id=str(user.id),
+                    outcome="denied",
+                    ip=ip,
+                    request_id=rid,
+                    details={"removed": body.remove, "reason": "last_admin"},
+                )
+                await db.commit()
+                raise ValidationAppError(
+                    "Refusing to remove the last admin role; promote another user first."
+                )
+
         user.roles = [r for r in user.roles if r.name not in remove_set]
         await write_audit(
             db,

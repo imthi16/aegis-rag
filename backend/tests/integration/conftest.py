@@ -76,6 +76,21 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         yield session
 
 
+@pytest.fixture
+def app_sessions(db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bind the app's module-level session factory to the test engine.
+
+    Work that outlives the request — eval background runs, the audit export's
+    streaming generator — cannot use the request-scoped session, so it opens one
+    from ``AsyncSessionLocal``. That points at the real ``DATABASE_URL``, so
+    without this rebinding those writes/reads bypass the test database entirely.
+    """
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    for module in ("app.api.v1.routes.eval", "app.api.v1.routes.audit"):
+        monkeypatch.setattr(f"{module}.AsyncSessionLocal", factory)
+    return None
+
+
 @pytest_asyncio.fixture
 async def client(db_engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
     """ASGI client whose get_db is bound to the test engine."""
