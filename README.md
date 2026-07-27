@@ -1,27 +1,15 @@
 <div align="center">
 
-# 🛡️ Aegis RAG
-
-### Sovereign, air-gapped Retrieval-Augmented Generation for regulated industries
-
-*Ask natural-language questions over your private corpus and get **citation-backed, faithfulness-graded** answers — with **role-based access enforced at retrieval** and a **tamper-evident audit trail**. Nothing ever leaves the perimeter.*
+<img src="./docs/brand/banner.svg" alt="Aegis RAG — sovereign, air-gapped retrieval-augmented generation. Citation-backed, faithfulness-graded answers over your private corpus; access enforced at retrieval; every action written to a tamper-evident ledger." width="100%">
 
 <br/>
-
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
-![LangGraph](https://img.shields.io/badge/LangGraph-orchestration-1C3C3C)
-![React](https://img.shields.io/badge/React-18%20+%20TS-61DAFB?logo=react&logoColor=white)
-![Postgres](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Zero Egress](https://img.shields.io/badge/network-zero%20egress-critical)
-![Typed](https://img.shields.io/badge/typing-mypy%20strict%20%7C%20TS%20strict-2b9348)
-![License](https://img.shields.io/badge/status-reference%20build-6E56CF)
-
 <br/>
 
-**Air-gapped** — inference, embeddings, and index run on-premise; nothing leaves.<br/>
-**Hash-chained audit** — every access appends to a tamper-evident record.<br/>
-**Cited or refused** — each claim traces to a source span, or the system declines.
+[![CI](https://github.com/imthi16/aegis-rag/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imthi16/aegis-rag/actions/workflows/ci.yml)
+
+![Python](https://img.shields.io/badge/Python-3.11-0A0E15?style=flat-square&logo=python&logoColor=39D6C4&labelColor=0F1622) ![FastAPI](https://img.shields.io/badge/FastAPI-async-0A0E15?style=flat-square&logo=fastapi&logoColor=39D6C4&labelColor=0F1622) ![LangGraph](https://img.shields.io/badge/LangGraph-state%20machine-0A0E15?style=flat-square&labelColor=0F1622) ![React](https://img.shields.io/badge/React%2018-TypeScript-0A0E15?style=flat-square&logo=react&logoColor=39D6C4&labelColor=0F1622) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-0A0E15?style=flat-square&logo=postgresql&logoColor=39D6C4&labelColor=0F1622) ![Zero egress](https://img.shields.io/badge/network-zero%20egress-0E8073?style=flat-square&labelColor=0F1622) ![Strictly typed](https://img.shields.io/badge/mypy%20%2B%20tsc-strict-0E8073?style=flat-square&labelColor=0F1622)
+
+**For finance, government, and healthcare** — where the model may not call home, and every access has to be provable years later.
 
 </div>
 
@@ -54,21 +42,21 @@ Most RAG stacks are built for convenience, not custody. They call a hosted model
 
 **Aegis RAG** is built the other way around. Inference, embeddings, reranking, and the vector index all run **on your own hardware**. Access is enforced *where documents are selected*, not bolted on at the API. Every answer carries its evidence, and every sensitive action is written to a cryptographic chain you can independently verify.
 
-> 📜 Compliance-mapped to **HIPAA · GDPR · EU AI Act · DORA · Swiss FADP / FINMA · UAE PDPL / DIFC Reg 10** — see [`docs/compliance-mapping.md`](./docs/compliance-mapping.md).
+> Compliance-mapped to **HIPAA · GDPR · EU AI Act · DORA · Swiss FADP / FINMA · UAE PDPL / DIFC Reg 10** — see [`docs/compliance-mapping.md`](./docs/compliance-mapping.md).
 
 ---
 
 ## What makes it different
 
-| | Capability | Why it matters |
-|---|---|---|
-| 🔒 | **100% on-premise / air-gapped** — Qwen2.5 32B (Ollama), BGE-M3 embeddings, bge-reranker-v2-m3, and FAISS all run locally. Weights are pre-staged once; then the cluster runs offline. | No third party ever sees a query or a document. Data residency is a property of the deployment, not a promise. |
-| 👥 | **RBAC at the *retrieval* layer** — the caller's roles filter the candidate set *before* ranking. | A user can't receive a forbidden document in an answer, a citation, a rerank candidate, or a log — even by accident. |
-| 🧭 | **Inspectable LangGraph pipeline** — hybrid retrieval → rerank → CRAG self-correction → generation → faithfulness grading → citations. | The reasoning path is an explicit state machine you can read, test, and audit — not a black box. |
-| 📌 | **Citations are mandatory** — every claim maps to a chunk with `document_id`, `chunk_id`, and character offsets. | Answers are traceable to the source span. No grounding ⇒ the answer is flagged, never faked. |
-| 🚫 | **No silent hallucination** — if evidence is insufficient, Aegis says so. Correction is *internal query rewrite + re-retrieval*, **never** a web search. | Refusal is a first-class outcome. The air gap is never broken to "find an answer." |
-| 🔗 | **Tamper-evident audit log** — hash-chained, HMAC-signed, append-only (enforced by a DB trigger *and* a least-privilege role), with a `/audit/verify` endpoint. | You can prove the record wasn't altered, and pinpoint the exact entry if it was. |
-| ✅ | **CI-gated evaluation** — RAGAS + a built-in local evaluator score faithfulness / hallucination / relevancy against local models and fail the build below thresholds. | Quality is a gate, not a vibe — and the eval itself never phones home. |
+| Capability | Why it matters |
+|---|---|
+| **100% on-premise / air-gapped** — Qwen2.5 32B (Ollama), BGE-M3 embeddings, bge-reranker-v2-m3, and FAISS all run locally. Weights are pre-staged once; then the cluster runs offline. | No third party ever sees a query or a document. Data residency is a property of the deployment, not a promise. |
+| **RBAC at the *retrieval* layer** — the caller's roles filter the candidate set *before* ranking. | A user can't receive a forbidden document in an answer, a citation, a rerank candidate, or a log — even by accident. |
+| **Inspectable LangGraph pipeline** — hybrid retrieval → rerank → CRAG self-correction → generation → faithfulness grading → citations. | The reasoning path is an explicit state machine you can read, test, and audit — not a black box. |
+| **Citations are mandatory** — every claim maps to a chunk with `document_id`, `chunk_id`, and character offsets. | Answers are traceable to the source span. No grounding ⇒ the answer is flagged, never faked. |
+| **No silent hallucination** — if evidence is insufficient, Aegis says so. Correction is *internal query rewrite + re-retrieval*, **never** a web search. | Refusal is a first-class outcome. The air gap is never broken to "find an answer." |
+| **Tamper-evident audit log** — hash-chained, HMAC-signed, append-only (enforced by a DB trigger *and* a least-privilege role), with a `/audit/verify` endpoint. | You can prove the record wasn't altered, and pinpoint the exact entry if it was. |
+| **CI-gated evaluation** — RAGAS + a built-in local evaluator score faithfulness / hallucination / relevancy against local models and fail the build below thresholds. | Quality is a gate, not a vibe — and the eval itself never phones home. |
 
 ---
 
@@ -108,11 +96,11 @@ Each stage does one job, and hands a typed state object to the next:
 
 Aegis never returns a bare paragraph you have to trust on faith. Every answer arrives with its evidence and one of three honest states:
 
-| State | Meaning | What you see |
+| State | In the response | What you see |
 |---|---|---|
-| ✅ **Verified · grounded** | Faithfulness score ≥ threshold and every claim is cited. | The answer, citation chips (click for the source snippet + page + offsets), and the retrieved spans. |
-| ⚠️ **Unverified · low faithfulness** | The model answered, but the answer isn't sufficiently supported by the sources. | The answer, clearly flagged — *not* presented as trustworthy. |
-| 🚫 **Insufficient evidence** | Retrieval + correction couldn't ground an answer. | An explicit refusal. No fabrication, no outside knowledge. |
+| **Verified · grounded** | `faithful: true` | The answer, citation chips (click for the source snippet + page + offsets), and the retrieved spans. Faithfulness cleared the gate and every claim is cited. |
+| **Unverified · low faithfulness** | `faithful: false` | The answer, clearly flagged — *not* presented as trustworthy. The model answered, but the sources don't sufficiently support it. |
+| **Insufficient evidence** | `insufficient_evidence: true` | An explicit refusal. Retrieval and correction couldn't ground an answer; no fabrication, no outside knowledge. |
 
 Faithfulness is a real number (`0.00–1.00`) gated at `FAITHFULNESS_THRESHOLD` (default `0.70`), surfaced to the user — not hidden.
 
@@ -355,17 +343,17 @@ SEED_ADMIN_USERNAME=admin SEED_ADMIN_PASSWORD='change-this' \
   docker compose exec -e SEED_ADMIN_USERNAME -e SEED_ADMIN_PASSWORD \
   backend python scripts/seed_admin.py
 
-make up-airgap          # 🔌 zero-egress mode: only the frontend is exposed
+make up-airgap          # zero-egress mode: only the frontend is exposed
 ```
 
 ### 4 · Open
 
 | Surface | URL |
 |---|---|
-| 🖥️ Frontend | `http://localhost:8080` |
-| 📚 API docs (OpenAPI) | `http://localhost:8000/docs` |
-| ❤️ Liveness | `GET /api/v1/health` |
-| ✅ Readiness | `GET /api/v1/health/ready` — `503` until models finish loading |
+| Frontend | `http://localhost:8080` |
+| API docs (OpenAPI) | `http://localhost:8000/docs` |
+| Liveness | `GET /api/v1/health` |
+| Readiness | `GET /api/v1/health/ready` — `503` until models finish loading |
 
 <details>
 <summary><b>End-to-end smoke test</b> (after provisioning)</summary>
@@ -495,7 +483,7 @@ Both run with `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` / `HF_DATASETS_OFFLI
 - **Fail closed** — any auth / RBAC / audit error denies and logs; it never default-allows.
 - **Zero egress** is enforced by `docker-compose.airgap.yml`: every service on an `internal: true` network with no gateway, DNS pinned off, capabilities dropped, and no published ports except the frontend. Asserted — not assumed — by `tests/integration/test_airgap_compose.py`, which resolves the real `docker compose config` and fails if any service is reachable beyond the internal network.
 
-📚 Deeper docs: [architecture](./docs/architecture.md) · [compliance mapping](./docs/compliance-mapping.md) · [threat model](./docs/threat-model.md) · [air-gap runbook](./docs/runbook-airgap-provisioning.md).
+Deeper docs: [architecture](./docs/architecture.md) · [compliance mapping](./docs/compliance-mapping.md) · [threat model](./docs/threat-model.md) · [air-gap runbook](./docs/runbook-airgap-provisioning.md).
 
 ---
 
@@ -511,9 +499,9 @@ aegis-rag/
 └── models/     pre-staged BGE-M3 + bge-reranker-v2-m3 weights
 ```
 
-> 📖 [`CLAUDE.md`](./CLAUDE.md) is the single source of truth — golden rules, module contracts, DB schema, the full API surface, and the per-module definition of done.
+> [`CLAUDE.md`](./CLAUDE.md) is the single source of truth — golden rules, module contracts, DB schema, the full API surface, and the per-module definition of done.
 
 <div align="center">
 <br/>
-<sub>Built to be air-gapped, auditable, and deterministic — in that order.</sub>
+<sub><b>Air-gapped, auditable, deterministic</b> — in that order.</sub>
 </div>
