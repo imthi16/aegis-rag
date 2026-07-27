@@ -80,3 +80,8 @@ eval: ## Run the CI eval gate (local models only)
 .PHONY: screenshots
 screenshots: ## Capture README screenshots from a running stack (AEGIS_USER/AEGIS_PASSWORD)
 	node infra/scripts/capture_screenshots.mjs
+
+.PHONY: demo
+demo: ## Capture README screenshots + demo.gif from the built frontend (stubbed API, no models)
+	cd $(FRONTEND) && npm run build
+	node infra/scripts/capture_demo.mjs

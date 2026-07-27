@@ -174,14 +174,22 @@ flowchart LR
 A dark **"Sovereign Instrument"** console — designed to read as instrumentation for an operator, not a generic dashboard. Monospace carries the data (hashes, IDs, scores); color is *earned*, appearing only where it encodes classification or trust.
 
 <p align="center">
-  <img src="./docs/screenshots/interrogate-schematic.svg" alt="Interrogate screen: command rail, a trust-sealed answer with citation chips, and the evidence rail showing the faithfulness gauge, CRAG document grades, and retrieved spans" width="100%">
+  <img src="./docs/screenshots/demo.gif" alt="Walkthrough: signing in, asking the corpus a question, the graded and cited answer with its evidence rail, the RBAC-filtered corpus, verifying the audit chain, and starting an evaluation run" width="100%">
+</p>
+
+<p align="center">
+  <sub><b>The whole loop</b> — sign in → ask → graded, cited answer + evidence → corpus → verify the ledger → run the eval gate.</sub>
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/03-interrogate-answered.png" alt="Interrogate screen: command rail, a trust-sealed answer with citation chips, and the evidence rail showing the faithfulness gauge, CRAG document grades, and retrieved spans" width="100%">
 </p>
 
 <p align="center">
   <sub><b>Interrogate</b> — the answer never arrives alone. The trust seal, the citation chips, and the evidence rail are all part of the response.</sub>
 </p>
 
-> **Note** — the image above is a *schematic*, drawn to scale from the real components. Actual captures are generated from a running deployment (see below) rather than committed by hand, so they can never drift from the shipped UI.
+> **How these were made — read this before trusting the numbers.** The images above are captures of the **real shipped frontend** (real components, CSS, routing and state), driven by `infra/scripts/capture_demo.mjs` against a **stubbed API**. A live answer needs Qwen2.5 32B (~20 GB) plus staged BGE-M3 weights, so the pipeline cannot run in CI or on a typical laptop — the **UI is genuine, the data in it is illustrative**, not a real model's output. To capture from an actual deployment instead, use `make screenshots` ([below](#the-interface)), which drives a real browser against a real stack and overwrites the same files. A hand-drawn [schematic](./docs/screenshots/interrogate-schematic.svg) of the same screen is also kept for reference.
 
 | Screen | What it does |
 |---|---|
@@ -194,16 +202,27 @@ A dark **"Sovereign Instrument"** console — designed to read as instrumentatio
 Built to a quality floor: strict TypeScript, keyboard focus visible, reduced motion respected, responsive to mobile.
 
 <details>
-<summary><b>Capture the real screenshots</b></summary>
+<summary><b>Regenerate the screenshots and the GIF</b></summary>
 
-With the stack up and an operator seeded:
+Two harnesses write the **same filenames** to `docs/screenshots/`, both at 2× device scale with reduced motion forced so captures are deterministic. Pick by what you have available:
+
+**A · From a real deployment** — authoritative, needs the full stack (models staged, operator seeded):
 
 ```bash
-npm i -D playwright@1.48.2 && npx playwright install chromium   # one-time, online
+npm i -D playwright && npx playwright install chromium        # one-time, online
 AEGIS_USER=admin AEGIS_PASSWORD='…' make screenshots
 ```
 
-Writes to `docs/screenshots/` at 2× device scale with reduced motion forced, so captures are deterministic:
+Screens your roles don't permit are skipped with a note rather than failing the run. Point it elsewhere with `AEGIS_URL`, and set the demo question with `AEGIS_QUERY`.
+
+**B · From the built frontend + a stubbed API** — no backend, database, models, or network; this is what the committed images come from, and the only path that also produces `demo.gif`:
+
+```bash
+npm i -D playwright ffmpeg-static     # ffmpeg-static only needed for the GIF
+make demo
+```
+
+> Playwright's bundled ffmpeg is a minimal VP8 build with no GIF encoder, so GIF encoding needs a full ffmpeg — point `AEGIS_FFMPEG` at one. Without it the stills still succeed and the GIF step warns and keeps the `.webm`.
 
 | File | Screen |
 |---|---|
@@ -214,8 +233,11 @@ Writes to `docs/screenshots/` at 2× device scale with reduced motion forced, so
 | `05-ledger.png` | Audit chain + verification |
 | `06-evaluation.png` | Eval runs and metric cards |
 | `07-mobile-nav.png` | Mobile navigation drawer |
+| `demo.gif` | The full loop (harness **B** only) |
 
-Screens your roles don't permit are skipped with a note rather than failing the run. Point it elsewhere with `AEGIS_URL`, and set the demo question with `AEGIS_QUERY`.
+Both navigate by **clicking the in-app nav**, never `page.goto()`: the auth store is deliberately in-memory (no `localStorage`, §6.18), so a full document navigation drops the session and `<Protected>` bounces to `/login`.
+
+Overrides: `AEGIS_OUT` (output dir), `AEGIS_PLAYWRIGHT` (path to a playwright install outside the repo — ESM ignores `NODE_PATH`), `AEGIS_CHROMIUM`, `AEGIS_FFMPEG`, `AEGIS_SKIP_GIF`.
 </details>
 
 ---
@@ -433,7 +455,7 @@ Answer quality is gated in CI, using **local models only** — the evaluator nev
 python eval/ci_gate.py --suite both      # exits non-zero below thresholds
 ```
 
-The gate skips cleanly (exit 0) when no local model is provisioned; add `--require` to make it blocking.
+A preflight checks the eval dependencies, the staged embedding weights, and that `OLLAMA_HOST` is reachable *and serving* `OLLAMA_MODEL`. If that environment isn't there the gate skips cleanly (exit 0) **naming the specific blocker**; `--require` turns the skip into a failure. Once preflight passes, an evaluation error is a real failure (exit 2) and is never reported as a skip — so a broken suite can't hide behind "no model provisioned".
 
 ---
 

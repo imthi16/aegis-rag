@@ -65,5 +65,9 @@ export function initials(name: string): string {
 // A short, monospace hash fingerprint — first + last groups, like a git shortref.
 export function fingerprint(hash: string, head = 6, tail = 4): string {
   if (!hash || hash.length <= head + tail + 1) return hash;
+  // `slice(-0)` is `slice(0)` — the WHOLE string. Callers that want a head-only
+  // ref pass tail = 0 (CitationChip, EvidencePanel, AuditTable resource ids),
+  // which otherwise rendered "a3f91c04…" followed by the entire untruncated id.
+  if (tail <= 0) return `${hash.slice(0, head)}…`;
   return `${hash.slice(0, head)}…${hash.slice(-tail)}`;
 }

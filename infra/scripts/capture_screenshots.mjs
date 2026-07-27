@@ -78,6 +78,35 @@ const goto = async (route) => {
   await page.goto(`${BASE}${route}`, { waitUntil: "networkidle" });
 };
 
+/**
+ * Navigate by CLICKING the in-app nav — never goto() once signed in.
+ *
+ * The auth store is deliberately in-memory only (no localStorage — see
+ * store/authStore.ts and §6.18), so a full document navigation wipes the token
+ * and <Protected> redirects to /login. Using goto() here captured the login
+ * screen for every post-login shot. Client-side routing keeps the session.
+ *
+ * Returns false when the operator's roles don't expose that nav entry, so the
+ * caller can skip the screen instead of failing the run.
+ */
+const ROUTES = {
+  Interrogate: "/chat",
+  Corpus: "/documents",
+  Ledger: "/audit",
+  Evaluation: "/eval",
+};
+
+const navigate = async (label) => {
+  const route = ROUTES[label];
+  if (page.url().endsWith(route)) return true;
+  const link = page.getByRole("link", { name: new RegExp(label, "i") }).first();
+  if ((await link.count()) === 0) return false;
+  await link.click();
+  await page.waitForURL(new RegExp(`${route}$`));
+  await page.waitForLoadState("networkidle");
+  return true;
+};
+
 // ── 1 · Login ──────────────────────────────────────────────────────────────
 await goto("/login");
 await page.waitForSelector("#username");
@@ -89,7 +118,7 @@ await page.fill("#password", PASSWORD);
 await Promise.all([page.waitForURL(/\/(chat|documents)/), page.click('button[type="submit"]')]);
 
 // ── 3 · Chat, empty state ──────────────────────────────────────────────────
-await goto("/chat");
+await navigate("Interrogate");
 await shot("02-interrogate-empty");
 
 // ── 4 · Chat, answered — the signature screen ──────────────────────────────
@@ -106,23 +135,26 @@ try {
 }
 
 // ── 5 · Remaining routes ───────────────────────────────────────────────────
-for (const [route, name] of [
-  ["/documents", "04-corpus"],
-  ["/audit", "05-ledger"],
-  ["/eval", "06-evaluation"],
+for (const [label, name] of [
+  ["Corpus", "04-corpus"],
+  ["Ledger", "05-ledger"],
+  ["Evaluation", "06-evaluation"],
 ]) {
-  await goto(route);
-  // Routes the operator's roles don't permit redirect back to /chat.
-  if (!page.url().includes(route)) {
-    console.warn(`! ${route} not permitted for ${USER} — skipping ${name}.png`);
+  // The nav only renders entries the operator's roles permit, so a missing
+  // link means "not authorized" — skip that screen rather than fail.
+  if (!(await navigate(label))) {
+    console.warn(`! ${label} not permitted for ${USER} — skipping ${name}.png`);
     continue;
   }
   await shot(name);
 }
 
 // ── 6 · Mobile — the drawer and the evidence sheet ─────────────────────────
+// Resize rather than re-navigate: the SPA stays mounted, so the in-memory
+// session survives.
+await navigate("Interrogate");
 await page.setViewportSize(MOBILE);
-await goto("/chat");
+await page.waitForTimeout(300);
 await page.click('button[aria-label="Open navigation"]');
 await page.waitForTimeout(300);
 await shot("07-mobile-nav");
