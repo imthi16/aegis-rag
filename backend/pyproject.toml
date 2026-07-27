@@ -7,7 +7,11 @@ name = "aegis-rag-backend"
 version = "0.1.0"
 description = "Aegis RAG — air-gapped Sovereign RAG platform (backend)"
 requires-python = "==3.11.*"
-readme = "../README.md"
+# No `readme` key: setuptools refuses any path outside the project dir
+# ("Cannot access '.../backend/../README.md'"), which broke `pip install -e`
+# and killed the whole backend CI job before lint/mypy/pytest could run.
+# The repo README lives at the root by design, so this stays unset — the
+# backend is installed editable for CI/dev, never published to an index.
 dynamic = ["dependencies"]
 
 [project.optional-dependencies]
