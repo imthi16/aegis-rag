@@ -1,0 +1,60 @@
+# Aegis RAG — backend runtime dependencies (pinned; CLAUDE.md §2, §9).
+# Do not upgrade across majors without an explicit instruction.
+
+# ── Web / ASGI ──────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+python-multipart==0.0.20
+slowapi==0.1.9
+
+# ── Config / validation ─────────────────────────────
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# ── Database ────────────────────────────────────────
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# ── Orchestration / LLM ─────────────────────────────
+langgraph==0.2.60
+langchain-core==0.3.28
+langchain-community==0.3.13
+ollama==0.4.4
+
+# ── Retrieval / embeddings / rerank ─────────────────
+faiss-cpu==1.9.0.post1
+rank-bm25==0.2.2
+FlagEmbedding==1.3.3
+numpy==1.26.4
+
+# ── Document parsing ────────────────────────────────
+PyMuPDF==1.25.1
+python-docx==1.1.2
+beautifulsoup4==4.12.3
+
+# ── Auth / crypto ───────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[argon2]==1.7.4
+argon2-cffi==23.1.0
+
+# ── Observability ───────────────────────────────────
+structlog==24.4.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp==1.29.0
+
+# ── Evaluation (LOCAL models only — never OpenAI/cloud) ──
+# RAGAS covers faithfulness / answer-relevancy / context metrics. The
+# hallucination + faithfulness suite is a built-in local evaluator
+# (app/eval/deepeval_runner.py) driven by the local Ollama model — the
+# third-party `deepeval` package is intentionally NOT used: it ships a
+# telemetry layer and eagerly imports cloud-model backends, breaking zero-egress.
+ragas==0.2.9
+
+# ── HTTP client (local services only) ───────────────
+httpx==0.27.2
+
+# ── Testing ─────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.25.0

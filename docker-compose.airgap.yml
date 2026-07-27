@@ -1,0 +1,68 @@
+# Aegis RAG — air-gap overlay (CLAUDE.md §6.19, §10 Infra).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.airgap.yml up
+#
+# Enforces ZERO EGRESS (Golden Rule 1):
+#   * every service attached ONLY to `aegis_internal`, an `internal: true`
+#     network — Docker gives it no gateway, so there is no route off the host;
+#   * no published ports except the nginx frontend;
+#   * DNS pinned to a dead address so external name resolution fails fast
+#     (belt-and-braces: the internal network is the actual guarantee);
+#   * dropped Linux capabilities + no-new-privileges on every service.
+# The full query path still works — postgres/ollama/backend reach each other by
+# service name over the internal network.
+#
+# NOTE ON MERGE SEMANTICS — this is the trap this file exists to avoid:
+# compose MERGES sequence keys across files. A bare `networks: [aegis_internal]`
+# here ADDS the internal network while LEAVING every service on the base file's
+# externally-routable `aegis_net`, so containers keep a default gateway and full
+# outbound access — the air gap silently does nothing while the file still reads
+# as correct. Two different tags are needed, and they are not interchangeable:
+#   `!reset <empty>`  — removes the base value entirely (used for `ports`)
+#   `!override <val>` — replaces the base value instead of merging into it
+# `!reset` with a value does NOT set that value; it clears the key. Verify with:
+#   docker compose -f docker-compose.yml -f docker-compose.airgap.yml config
+# and confirm every service lists aegis_internal ONLY. This is asserted by
+# tests/integration/test_airgap_compose.py so it cannot regress unnoticed.
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    <<: *hardening
+    ports: !reset []
+    dns: !override ["127.0.0.1"]
+    networks: !override
+      - aegis_internal
+
+  ollama:
+    <<: *hardening
+    ports: !reset []
+    dns: !override ["127.0.0.1"]
+    networks: !override
+      - aegis_internal
+
+  backend:
+    <<: *hardening
+    ports: !reset []
+    dns: !override ["127.0.0.1"]
+    networks: !override
+      - aegis_internal
+
+  frontend:
+    # The only service exposed to operators.
+    <<: *hardening
+    ports: !override
+      - "8080:80"
+    dns: !override ["127.0.0.1"]
+    networks: !override
+      - aegis_internal
+
+networks:
+  aegis_internal:
+    driver: bridge
+    internal: true

@@ -1,3 +1,52 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> **Two documents in one.** Everything below the `— Aegis RAG` heading is the original **build specification** — the design contract (golden rules, module signatures, DB schema, API surface, per-module Definition of Done). The platform is now **built** and follows that spec closely; treat it as the authoritative source of intent when changing behavior. This top section is the **operational guide**: how to actually build, test, and reason about the code as it exists today.
+
+## Working state
+
+All 12 build steps are complete: backend (FastAPI + LangGraph), frontend (React/TS), infra (compose + airgap overlay), and eval harness are in place. Model weights for BGE-M3 and bge-reranker-v2-m3 are pre-staged under `./models/`.
+
+**Known deviations from the spec below** (the spec text is not updated for these — trust the code):
+- **Eval "DeepEval" suite is home-grown.** The third-party `deepeval` package is intentionally *not* a dependency (it ships telemetry + eager cloud-model imports that break zero-egress). `app/eval/deepeval_runner.py` is a built-in local evaluator driven by the local Ollama model. RAGAS is wired to local models via `app/eval/local_llm.py`. Nothing in eval may reach OpenAI.
+- **`/query/stream` reveals a graded answer; it does not stream raw LLM tokens.** The graph runs to completion (including faithfulness grading) and the finished answer is then emitted as SSE frames, followed by `event: done` with the full `QueryResponse`. Streaming live tokens would put ungraded text in front of the user, and an answer later flagged `faithful=false` must never already have been rendered as trusted (Golden Rules 4 & 6). The frames reassemble into the answer byte-for-byte — see `tests/unit/test_sse.py`.
+- **Uploaded originals are retained** under `DOCUMENT_STORAGE_PATH` (default `/data/documents`, inside the existing `aegis_data` volume) because `POST /documents/{id}/reindex` re-parses and re-embeds from them. `documents.source_path` therefore points at a file that exists; deleting a document unlinks it. A document whose original is missing fails reindex loudly (422) rather than half-reindexing.
+- **The air-gap overlay needs `!override`, not just `!reset`.** Compose *merges* sequence keys across files, so a bare `networks: [aegis_internal]` in `docker-compose.airgap.yml` ADDS the internal network while leaving every service on the base file's routable `aegis_net` — containers keep a default gateway and full egress while the overlay still reads as correct. `!reset` only *clears* a key (correct for `ports`); replacing a value needs `!override`. `tests/integration/test_airgap_compose.py` resolves the real `docker compose config` and asserts each service is on `aegis_internal` **only**, so this cannot regress silently. It skips without the docker CLI (no daemon needed).
+- **Audit immutability is enforced by the DB trigger, not by connecting as `aegis_audit`.** The app writes audit rows on its normal session so they commit atomically with the triggering operation (fail-closed). `audit_log` is protected for *every* role by the `BEFORE UPDATE OR DELETE` trigger in migration 0001; the least-privilege `aegis_audit` role (INSERT/SELECT only) is provisioned for out-of-band access. The DDL lives in `app/db/audit_ddl.py` so the migration and the integration-test schema share one definition.
+
+## Commands
+
+Backend dev runs inside `./backend`. The full local gate (mirrors CI in `.github/workflows/ci.yml`):
+```bash
+cd backend && ruff check . && ruff format --check . && mypy app && pytest
+```
+- **Single test:** `cd backend && pytest tests/unit/test_rrf.py` or `pytest tests/unit/test_rrf.py::test_name`
+- **Integration tests need Postgres.** They *skip* unless a reachable asyncpg DSN is set: `TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/aegis pytest tests/integration`. The fixture drops/recreates all tables per engine (plus the `audit_log` append-only trigger, so tests run against the production guard), so point it at a throwaway DB.
+- **Lint/format/type auto-fix:** `make lint`, `make fmt` (writes), `make typecheck`, `make test` from repo root.
+- **Eval gate:** `python eval/ci_gate.py --suite both` — exits 0 (skips) when no local Ollama model is provisioned; add `--require` to make it blocking.
+
+Frontend (`./frontend`): `npm install && npm run typecheck && npm run build` (build is `tsc --noEmit && vite build`, so it is type-strict). `npm run dev` for the Vite dev server.
+
+Stack lifecycle via Make (wraps `docker compose`): `make models` + `make pull-llm` (the only online steps) → `make build up migrate seed` → `make up-airgap` for the zero-egress overlay. `make logs` tails the backend.
+
+## Architecture (the parts that span multiple files)
+
+- **Config is the single env ingress.** Everything reads settings through `app/core/config.py` `get_settings()` (`@lru_cache`d) — never `os.environ` elsewhere. In `production` the `Settings` validator refuses to boot on missing/placeholder (`CHANGE_ME_*`) secrets and builds `DATABASE_URL` from parts.
+- **RBAC is enforced at retrieval, not just the API.** The chain: `rbac/enforcement.allowed_document_ids(user)` → the set of permitted `faiss_id`s → passed into **both** `FaissStore.search` and `BM25Index.search` as `allowed_faiss_ids` *before* ranking → RRF fusion (`retrieval/rrf.py`) → `retrieval/hybrid.py` re-asserts visibility again when hydrating chunks from Postgres (defense in depth). An empty allowed set returns `[]`, which the graph turns into an "insufficient evidence" response. Any RBAC/visibility error fails **closed** (empty set).
+- **The query pipeline is a compiled LangGraph state machine.** `graph/state.py` (a `TypedDict` threaded through nodes) + `graph/nodes/*.py` (each `(state) -> partial state`) + `graph/pipeline.py` `build_graph()` wires them with conditional routers. The corrective (CRAG) loop is `grade_documents → transform_query → retrieve` and the regen loop is `grade_faithfulness → generate`; both routers **must terminate** via `MAX_CORRECTION_ATTEMPTS`/`MAX_REGEN_ATTEMPTS`. Correction is *internal query rewrite + re-retrieval only* — never a web search. The `/query` route drives the compiled graph and writes one `query_log` row + one audit record per call.
+- **ML models are process singletons loaded once at lifespan.** `get_embedder()`, `get_faiss_store()`, `get_reranker()`, `get_llm()` are `@lru_cache`d wrappers (`app/embeddings`, `app/retrieval`, `app/generation`). `app/main.py::_warm_singletons` calls each one during startup (in a worker thread — the loaders block) so no request pays the load cost and `/health/ready` reports real readiness: the `is_ready()` probes read `lru_cache` state, so without the warm-up they stay false until the first query. A component that fails to load is logged and leaves `ready=false` for itself rather than aborting boot. Offline env vars (`HF_HUB_OFFLINE` etc.) must be set before `FlagEmbedding`/`transformers` import.
+- **Request guards live in `app/core/middleware.py`.** `RATE_LIMIT_PER_MINUTE` (slowapi, keyed on `X-Real-IP` which nginx always overwrites — uvicorn runs without `--proxy-headers`, so `request.client.host` would be nginx itself and every caller would share one bucket) and `REQUEST_MAX_BODY_MB`. Health probes are exempt from throttling. The 429 handler **must stay synchronous**: `SlowAPIMiddleware` dispatches via `sync_check_limits`, which silently swaps in slowapi's own handler for any coroutine, bypassing the §7 error envelope.
+- **Audit is a fail-closed hash chain.** `audit/hash_chain.py` computes `HMAC-SHA256(canonical(payload) + prev_hash)`; `audit/logger.write_audit` appends and, if it fails, the triggering operation fails. The `audit_log` table is append-only, enforced by *both* a DB trigger and a least-privilege `aegis_audit` role (`INSERT, SELECT` only) created in `infra/postgres/init.sql`. `audit/verifier.verify_chain` recomputes every link and reports the first break.
+- **Postgres is the system of record; FAISS is the live vector index.** Postgres holds the authoritative `faiss_id ↔ chunk` mapping. Ingestion (`ingestion/pipeline.py`) is transactional with FAISS/BM25 compensation: if the DB commit fails after a FAISS add, the vectors are removed so no orphans remain. `rank_bm25` is immutable, so BM25 is rebuilt on append.
+- **Routers are thin.** `app/api/v1/routes/*` validate, enforce roles (`require_roles`), call into modules, write audit, return Pydantic DTOs (`app/schemas/*`). No business logic in routers.
+
+## Non-negotiables (see Section 0 below for the full list)
+
+Zero runtime egress; offline-by-env; RBAC at retrieval; no answer without citations; no CRAG web-search fallback; append-only audit; `temperature=0.0` for all grading/faithfulness LLM calls; strict typing (Pydantic v2 + mypy strict backend, strict TS frontend — no `Any`/`any` across module boundaries); fail closed on any auth/RBAC/audit error. Pin every dependency version.
+
+---
+
 # CLAUDE.md — Aegis RAG
 > **You are the AI coding agent (Claude Code) building this repository.**
 > This file is the single source of truth. Build the entire platform from it.
