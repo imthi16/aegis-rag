@@ -13,7 +13,12 @@ import pytest
 from app.core.dependencies import require_roles
 from app.core.exceptions import ForbiddenError
 from app.rbac.classifications import Classification, Role
-from app.rbac.enforcement import filter_chunk_candidates, is_document_visible
+from app.rbac.enforcement import (
+    assignable_roles,
+    filter_chunk_candidates,
+    is_document_visible,
+    unassignable_roles,
+)
 
 ALL_ROLES = [Role.ADMIN, Role.COMPLIANCE_AUDITOR, Role.ANALYST, Role.VIEWER]
 ALL_CLASSIFICATIONS = [
@@ -86,6 +91,37 @@ def test_filter_chunk_candidates_drops_forbidden() -> None:
     kept = filter_chunk_candidates(cands, {d1})
     assert [c.content for c in kept] == ["a", "c"]
     assert filter_chunk_candidates(cands, set()) == []
+
+
+def _user(*role_names: str) -> SimpleNamespace:
+    return SimpleNamespace(role_names=list(role_names))
+
+
+def test_admin_may_grant_every_role() -> None:
+    assert assignable_roles(_user("admin")) == set(ALL_ROLES)  # type: ignore[arg-type]
+    assert unassignable_roles(_user("admin"), ALL_ROLES) == set()  # type: ignore[arg-type]
+
+
+def test_non_admin_may_only_grant_roles_it_holds() -> None:
+    analyst = _user("analyst")
+    assert assignable_roles(analyst) == {Role.ANALYST}  # type: ignore[arg-type]
+    # Widening a document's audience beyond the uploader's own access is refused.
+    assert unassignable_roles(analyst, [Role.ANALYST]) == set()  # type: ignore[arg-type]
+    assert unassignable_roles(analyst, [Role.ANALYST, Role.VIEWER]) == {  # type: ignore[arg-type]
+        Role.VIEWER
+    }
+    assert unassignable_roles(analyst, [Role.ADMIN]) == {Role.ADMIN}  # type: ignore[arg-type]
+
+
+def test_multi_role_user_may_grant_its_union() -> None:
+    user = _user("analyst", "viewer")
+    assert assignable_roles(user) == {Role.ANALYST, Role.VIEWER}  # type: ignore[arg-type]
+    assert unassignable_roles(user, [Role.ANALYST, Role.VIEWER]) == set()  # type: ignore[arg-type]
+
+
+def test_roleless_user_may_grant_nothing() -> None:
+    assert assignable_roles(_user()) == set()  # type: ignore[arg-type]
+    assert unassignable_roles(_user(), [Role.VIEWER]) == {Role.VIEWER}  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

@@ -84,3 +84,22 @@ def filter_chunk_candidates(
 ) -> list[_CandidateT]:
     """Drop any candidate whose document is not in the allowed set (defense in depth)."""
     return [c for c in candidates if c.document_id in allowed_doc_ids]
+
+
+def assignable_roles(user: User) -> set[Role]:
+    """Roles this user may grant on a document they upload (CLAUDE.md §6.18).
+
+    "Only roles ≤ the uploader's authority": an ``admin`` may grant any role;
+    everyone else may only grant roles they themselves hold. This stops an
+    analyst from widening a document's audience beyond its own access — a
+    privilege-escalation-by-proxy that API-level role gating alone would miss.
+    """
+    roles = user_role_set(user)
+    if Role.ADMIN in roles:
+        return set(Role)
+    return roles
+
+
+def unassignable_roles(user: User, requested: list[Role]) -> set[Role]:
+    """The subset of ``requested`` the user is not permitted to grant (may be empty)."""
+    return set(requested) - assignable_roles(user)

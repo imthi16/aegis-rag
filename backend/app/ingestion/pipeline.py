@@ -9,10 +9,11 @@ classification) is deduped.
 
 from __future__ import annotations
 
+import os
 import secrets
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.logger import write_audit
@@ -176,3 +177,87 @@ async def document_faiss_ids(db: AsyncSession, document_id: uuid.UUID) -> list[i
         select(ChunkModel.faiss_id).where(ChunkModel.document_id == document_id)
     )
     return [int(fid) for fid in rows.scalars().all()]
+
+
+async def reindex_document(db: AsyncSession, doc: Document) -> int:
+    """Re-parse, re-chunk, re-embed and re-index a document from its stored original.
+
+    This is a genuine rebuild of both channels, not just a BM25 refresh: the old
+    chunk rows and their vectors are dropped and replaced. Returns the new chunk
+    count.
+
+    Ordering mirrors ``ingest_document`` so the failure modes are the same: new
+    vectors go into FAISS first, then the DB transaction swaps the chunk rows; if
+    the commit fails the new vectors are compensated away and the old ones are
+    restored, leaving the document exactly as it was.
+
+    Raises ``FileNotFoundError`` when the original is no longer on disk (e.g. a
+    document ingested before originals were retained) — the caller surfaces that
+    rather than silently doing half a reindex.
+    """
+    settings = get_settings()
+    source = doc.source_path
+    if not source or not os.path.exists(source):
+        raise FileNotFoundError(
+            f"stored original for document {doc.id} is unavailable; cannot reindex"
+        )
+
+    parsed = parse_document(source, doc.filetype)
+    chunks = chunk_text(parsed, settings.chunk_size_tokens, settings.chunk_overlap_tokens)
+    new_faiss_ids = [_new_faiss_id() for _ in chunks]
+
+    old_rows = (
+        (
+            await db.execute(
+                select(ChunkModel.faiss_id, ChunkModel.content).where(
+                    ChunkModel.document_id == doc.id
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    old_faiss_ids = [int(fid) for fid, _ in old_rows]
+
+    store = get_faiss_store()
+    added = False
+    if chunks:
+        vectors = get_embedder().encode([c.content for c in chunks], settings.embedding_batch_size)
+        store.add(vectors, new_faiss_ids)
+        added = True
+
+    try:
+        await db.execute(delete(ChunkModel).where(ChunkModel.document_id == doc.id))
+        for chunk, fid in zip(chunks, new_faiss_ids, strict=True):
+            db.add(
+                ChunkModel(
+                    document_id=doc.id,
+                    chunk_index=chunk.index,
+                    content=chunk.content,
+                    token_count=chunk.token_count,
+                    page_number=chunk.page_number,
+                    char_start=chunk.char_start,
+                    char_end=chunk.char_end,
+                    faiss_id=fid,
+                    embedding_model=EMBEDDING_MODEL_NAME,
+                )
+            )
+        doc.chunk_count = len(chunks)
+        doc.page_count = len(parsed.pages)
+        doc.content_hash = parsed.content_hash
+        doc.status = "ready"
+        await db.flush()
+    except Exception:
+        await db.rollback()
+        if added:
+            store.remove(new_faiss_ids)  # compensate: drop the vectors we just added
+        logger.error("reindex_failed", document_id=str(doc.id))
+        raise
+
+    # Committed: the old vectors are now unreferenced, so retire them and
+    # rebuild the lexical index from the (updated) source of truth.
+    if old_faiss_ids:
+        store.remove(old_faiss_ids)
+    store.save()
+    await rebuild_bm25_from_db(db)
+    return len(chunks)

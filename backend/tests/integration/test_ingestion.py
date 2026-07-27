@@ -138,6 +138,86 @@ async def test_ingest_dedupes_same_hash_and_classification(
 
 
 @pytest.mark.asyncio
+async def test_reindex_reembeds_and_swaps_vectors(
+    ingest_env: None, db_session: AsyncSession, tmp_path: Path
+) -> None:
+    """Reindex is a true rebuild of BOTH channels, not just a BM25 refresh."""
+    admin = await _admin(db_session)
+    path = _write_txt(tmp_path, "Original body about sovereign retrieval. " * 10)
+
+    doc = await ingest_document(
+        db_session,
+        file_path=path,
+        filename="doc.txt",
+        filetype="txt",
+        classification=Classification.INTERNAL,
+        allowed_roles=[RoleEnum.ANALYST],
+        uploaded_by=admin.id,
+    )
+    original_faiss_ids = {
+        int(fid)
+        for fid in (
+            await db_session.execute(select(Chunk.faiss_id).where(Chunk.document_id == doc.id))
+        )
+        .scalars()
+        .all()
+    }
+    store = get_faiss_store()
+    ntotal_before = store.ntotal
+
+    # Rewrite the stored original with longer content, then reindex.
+    Path(path).write_text("Rewritten and expanded body. " * 40, encoding="utf-8")
+    new_count = await pipeline.reindex_document(db_session, doc)
+    await db_session.commit()
+
+    assert new_count > 0
+    assert doc.chunk_count == new_count
+
+    new_faiss_ids = {
+        int(fid)
+        for fid in (
+            await db_session.execute(select(Chunk.faiss_id).where(Chunk.document_id == doc.id))
+        )
+        .scalars()
+        .all()
+    }
+    # Fresh vectors, and the stale ones retired rather than left orphaned.
+    assert new_faiss_ids.isdisjoint(original_faiss_ids)
+    assert len(new_faiss_ids) == new_count
+    assert store.ntotal == ntotal_before - len(original_faiss_ids) + new_count
+
+    # Content was genuinely re-parsed.
+    contents = (
+        (await db_session.execute(select(Chunk.content).where(Chunk.document_id == doc.id)))
+        .scalars()
+        .all()
+    )
+    assert any("Rewritten" in c for c in contents)
+
+
+@pytest.mark.asyncio
+async def test_reindex_without_stored_original_raises(
+    ingest_env: None, db_session: AsyncSession, tmp_path: Path
+) -> None:
+    """A document whose original is gone fails loudly instead of half-reindexing."""
+    admin = await _admin(db_session)
+    path = _write_txt(tmp_path, "Body that will be removed from disk. " * 10)
+    doc = await ingest_document(
+        db_session,
+        file_path=path,
+        filename="doc.txt",
+        filetype="txt",
+        classification=Classification.INTERNAL,
+        allowed_roles=[RoleEnum.ANALYST],
+        uploaded_by=admin.id,
+    )
+    Path(path).unlink()
+
+    with pytest.raises(FileNotFoundError):
+        await pipeline.reindex_document(db_session, doc)
+
+
+@pytest.mark.asyncio
 async def test_ingest_rolls_back_faiss_on_failure(
     ingest_env: None, db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

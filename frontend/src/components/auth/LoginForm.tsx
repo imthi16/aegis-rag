@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { SovereignSeal3D } from "@/components/layout/SovereignSeal3D";
+import { useTilt } from "@/hooks/useTilt";
 import { useAuth } from "@/hooks/useAuth";
 
 export function LoginForm(): JSX.Element {
@@ -14,6 +15,11 @@ export function LoginForm(): JSX.Element {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The faceplate leans toward the pointer with a tracking sheen — the theme's
+  // hardware model made tactile at the moment of first contact. Flat under
+  // reduced motion (handled inside the hook).
+  const tilt = useTilt<HTMLDivElement>(4);
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -30,11 +36,25 @@ export function LoginForm(): JSX.Element {
   };
 
   return (
-    <div className="hw hw-raise animate-slide-up rounded-xl backdrop-blur">
-      <div className="flex flex-col items-center px-8 pb-2 pt-9 text-center">
+    <div
+      ref={tilt.ref}
+      onPointerMove={tilt.onPointerMove}
+      onPointerLeave={tilt.onPointerLeave}
+      className="hw hw-raise tilt-card spec relative animate-slide-up rounded-xl backdrop-blur"
+    >
+      {/* Mobile brand block — the hero pane is hidden below lg, so the seal
+          rides inside the card there. */}
+      <div className="flex flex-col items-center px-8 pb-2 pt-9 text-center lg:hidden">
         <SovereignSeal3D className="h-24 w-24" />
         <div className="mt-5 font-mono text-lg font-semibold tracking-[0.3em] text-fg">AEGIS</div>
-        <div className="mt-1.5 eyebrow">Sovereign RAG Terminal</div>
+        <div className="eyebrow mt-1.5">Sovereign RAG Terminal</div>
+      </div>
+
+      {/* Desktop header — branding already lives in the hero pane, so the card
+          just names the task. */}
+      <div className="hidden px-8 pb-1 pt-8 lg:block">
+        <div className="eyebrow">Access</div>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg">Sign in to the terminal</h1>
       </div>
 
       <form onSubmit={submit} className="space-y-4 px-8 pb-6 pt-6">
@@ -75,8 +95,8 @@ export function LoginForm(): JSX.Element {
           <span className="absolute inline-flex h-full w-full animate-pulse-dot rounded-full bg-jade/70" />
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-jade" />
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-faint">
-          Processed on-premise · zero egress
+        <span className="whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
+          On-premise · zero egress
         </span>
       </div>
     </div>

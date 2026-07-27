@@ -6,17 +6,28 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
 import { uploadDocument } from "@/api/documents";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const CLASSIFICATIONS = ["public", "internal", "confidential", "restricted"];
-const ROLES = ["admin", "compliance_auditor", "analyst", "viewer"];
+const ALL_ROLES = ["admin", "compliance_auditor", "analyst", "viewer"];
 
 export function UploadDialog(): JSX.Element {
   const qc = useQueryClient();
+  const { roles: myRoles } = useAuth();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [classification, setClassification] = useState("internal");
-  const [roles, setRoles] = useState<string[]>(["analyst"]);
+
+  // §6.18: only offer roles within the uploader's own authority — an admin may
+  // grant any role, everyone else only the roles they hold. The API enforces the
+  // same rule; this keeps the UI from proposing a request that would be refused.
+  const grantable = myRoles.includes("admin")
+    ? ALL_ROLES
+    : ALL_ROLES.filter((r) => myRoles.includes(r));
+  const [roles, setRoles] = useState<string[]>(() =>
+    grantable.includes("analyst") ? ["analyst"] : grantable.slice(0, 1),
+  );
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -85,7 +96,7 @@ export function UploadDialog(): JSX.Element {
             <div>
               <Label>Allowed roles</Label>
               <div className="flex flex-wrap gap-2">
-                {ROLES.map((r) => {
+                {grantable.map((r) => {
                   const active = roles.includes(r);
                   return (
                     <button

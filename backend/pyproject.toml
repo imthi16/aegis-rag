@@ -17,6 +17,10 @@ dev = [
     "pytest-cov==6.0.0",
     "ruff==0.8.4",
     "mypy==1.14.0",
+    # Parses the resolved `docker compose config` output in
+    # tests/integration/test_airgap_compose.py. Test-only — never imported by app/.
+    "PyYAML==6.0.2",
+    "types-PyYAML==6.0.12.20241230",
 ]
 
 [tool.setuptools.dynamic]

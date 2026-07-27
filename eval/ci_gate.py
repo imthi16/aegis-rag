@@ -54,7 +54,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Aegis RAG CI eval gate")
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
     parser.add_argument("--suite", choices=["ragas", "deepeval", "both"], default="both")
-    parser.add_argument("--require", action="store_true", help="fail (not skip) if models unavailable")
+    parser.add_argument(
+        "--require", action="store_true", help="fail (not skip) if models unavailable"
+    )
     args = parser.parse_args(argv)
 
     from app.eval import gate_passed
@@ -91,7 +93,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     passed = gate_passed(faithfulness, hallucination_rate)
-    print(f"ci_gate: faithfulness={faithfulness:.3f} hallucination_rate={hallucination_rate:.3f} passed={passed}")
+    print(
+        f"ci_gate: faithfulness={faithfulness:.3f} "
+        f"hallucination_rate={hallucination_rate:.3f} passed={passed}"
+    )
     asyncio.run(_persist(metrics, passed, args.suite, args.dataset))
     return 0 if passed else 1
 

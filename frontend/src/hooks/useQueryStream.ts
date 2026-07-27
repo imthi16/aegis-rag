@@ -55,11 +55,14 @@ export function useQueryStream(): QueryStreamState {
         buffer = events.pop() ?? "";
         for (const evt of events) {
           const isDone = evt.includes("event: done");
+          // Per SSE, a single optional space after "data:" is not payload — strip
+          // it per line, not once per frame, or multi-line answers gain leading
+          // spaces on every line but the first.
           const dataLines = evt
             .split("\n")
             .filter((l) => l.startsWith("data:"))
-            .map((l) => l.slice(5));
-          const data = dataLines.join("\n").replace(/^ /, "");
+            .map((l) => l.slice(5).replace(/^ /, ""));
+          const data = dataLines.join("\n");
           if (isDone) {
             try {
               setResponse(JSON.parse(data) as QueryResponse);

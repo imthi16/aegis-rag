@@ -4,10 +4,11 @@
 ``GET /health/ready`` — readiness, reports {db, ollama, faiss, embedder,
                         reranker}; returns 503 until every dependency is up.
 
-In Step 1 only the process itself exists; the dependency checks are wired
-incrementally by later steps (db.session ping, model singletons, Ollama probe)
-and default to ``False`` until then. ``/health`` is what container healthchecks
-should target during bring-up.
+The model components report the state of their ``@lru_cache`` singletons, which
+``app.main`` loads once in the lifespan — so this flips to 200 after startup
+completes rather than after the first query. ``/health`` (not ``/health/ready``)
+is what container healthchecks target during bring-up, since model loading can
+outlast a healthcheck start period.
 """
 
 from __future__ import annotations

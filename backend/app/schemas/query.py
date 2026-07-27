@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Upper bound on caller-supplied top_k: a request must not be able to force an
+# unbounded retrieval/rerank fan-out. Omitted → RETRIEVAL_TOP_K from config.
+MAX_TOP_K = 200
 
 
 class QueryRequest(BaseModel):
-    query: str
-    top_k: int | None = None
+    query: str = Field(min_length=1)
+    top_k: int | None = Field(default=None, ge=1, le=MAX_TOP_K)
 
 
 class CitationOut(BaseModel):

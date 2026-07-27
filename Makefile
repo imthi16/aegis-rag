@@ -75,3 +75,8 @@ test: ## Run backend tests
 .PHONY: eval
 eval: ## Run the CI eval gate (local models only)
 	python eval/ci_gate.py
+
+# ── Docs ────────────────────────────────────────────────────
+.PHONY: screenshots
+screenshots: ## Capture README screenshots from a running stack (AEGIS_USER/AEGIS_PASSWORD)
+	node infra/scripts/capture_screenshots.mjs

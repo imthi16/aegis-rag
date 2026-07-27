@@ -21,7 +21,7 @@ from app.core.config import get_settings
 from app.db.models.chunk import Chunk
 from app.db.models.user import User
 from app.embeddings.embedder import get_embedder
-from app.rbac.enforcement import allowed_document_ids, is_admin
+from app.rbac.enforcement import allowed_document_ids, filter_chunk_candidates, is_admin
 from app.retrieval.bm25_index import get_bm25_index
 from app.retrieval.faiss_store import get_faiss_store
 from app.retrieval.rrf import reciprocal_rank_fusion
@@ -79,16 +79,16 @@ async def hybrid_retrieve(
     rrf_scores = dict(fused)
     ordered_ids = [fid for fid, _ in fused][:top_k]
 
-    # 4) Hydrate + re-assert RBAC (defense in depth).
+    # 4) Hydrate, preserving fusion order.
     rows = (await db.execute(select(Chunk).where(Chunk.faiss_id.in_(ordered_ids)))).scalars().all()
-    by_fid = {c.faiss_id: c for c in rows if c.document_id in allowed_docs}
+    by_fid = {c.faiss_id: c for c in rows}
 
-    candidates: list[Candidate] = []
+    hydrated: list[Candidate] = []
     for fid in ordered_ids:
         chunk = by_fid.get(fid)
         if chunk is None:
             continue
-        candidates.append(
+        hydrated.append(
             Candidate(
                 faiss_id=fid,
                 chunk_id=chunk.id,
@@ -100,4 +100,9 @@ async def hybrid_retrieve(
                 score=rrf_scores[fid],
             )
         )
-    return candidates[:top_k]
+
+    # 5) Re-assert RBAC on the hydrated rows (defense in depth): even though the
+    # candidate ids were filtered pre-ranking, drop anything whose document is not
+    # visible. Routed through the shared gate (§6.3) rather than an inline check so
+    # both enforcement points cannot drift apart.
+    return filter_chunk_candidates(hydrated, allowed_docs)[:top_k]

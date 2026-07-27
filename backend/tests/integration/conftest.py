@@ -14,6 +14,11 @@ import app.db.models  # noqa: F401  (register tables)
 import pytest
 import pytest_asyncio
 from app.core.dependencies import get_db
+from app.db.audit_ddl import (
+    AUDIT_MUTATION_GUARD_FN,
+    AUDIT_MUTATION_GUARD_TRIGGER,
+    DROP_AUDIT_MUTATION_GUARD_FN,
+)
 from app.db.base import Base
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -48,11 +53,19 @@ async def db_engine() -> AsyncIterator[AsyncEngine]:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        # create_all builds tables from the model metadata but NOT the raw-SQL
+        # objects the baseline migration adds. The append-only guard on
+        # audit_log is a production security control (Golden Rule 5), so the
+        # integration suite must run against it rather than an unprotected
+        # table — otherwise a regression that drops the trigger still passes.
+        await conn.execute(text(AUDIT_MUTATION_GUARD_FN))
+        await conn.execute(text(AUDIT_MUTATION_GUARD_TRIGGER))
     try:
         yield engine
     finally:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
+            await conn.execute(text(DROP_AUDIT_MUTATION_GUARD_FN))
         await engine.dispose()
 
 
@@ -61,6 +74,21 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
     async with factory() as session:
         yield session
+
+
+@pytest.fixture
+def app_sessions(db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bind the app's module-level session factory to the test engine.
+
+    Work that outlives the request — eval background runs, the audit export's
+    streaming generator — cannot use the request-scoped session, so it opens one
+    from ``AsyncSessionLocal``. That points at the real ``DATABASE_URL``, so
+    without this rebinding those writes/reads bypass the test database entirely.
+    """
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    for module in ("app.api.v1.routes.eval", "app.api.v1.routes.audit"):
+        monkeypatch.setattr(f"{module}.AsyncSessionLocal", factory)
+    return None
 
 
 @pytest_asyncio.fixture

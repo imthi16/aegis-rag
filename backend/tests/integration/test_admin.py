@@ -96,3 +96,79 @@ async def test_admin_creates_role(client: AsyncClient, db_session: AsyncSession)
     )
     assert resp.status_code == 201
     assert resp.json()["name"] == "compliance_auditor"
+
+
+@pytest.mark.asyncio
+async def test_cannot_remove_the_last_admin_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Demoting the only admin would make access-control administration impossible.
+
+    §11 requires auditable admin role separation (DIFC Reg 10 / FINMA); with zero
+    admins left, roles and documents can only be managed via direct DB access.
+    Fail closed and record the denial.
+    """
+    pw = "admin-pass-123"
+    await _user(db_session, "root", pw, "admin")
+    headers = {"Authorization": f"Bearer {await _token(client, 'root', pw)}"}
+
+    me = await client.get("/api/v1/auth/me", headers=headers)
+    admin_id = me.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/admin/users/{admin_id}/roles",
+        json={"add": [], "remove": ["admin"]},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+
+    # Still an admin.
+    still = await client.get("/api/v1/auth/me", headers=headers)
+    assert "admin" in still.json()["roles"]
+
+    # The refusal is auditable.
+    denied = (
+        (
+            await db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "role.revoked", AuditLog.outcome == "denied"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(denied) == 1
+    assert denied[0].details["reason"] == "last_admin"
+
+
+@pytest.mark.asyncio
+async def test_can_remove_admin_when_another_admin_remains(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """The guard protects the *last* admin only — it must not block normal demotion."""
+    pw = "admin-pass-123"
+    await _user(db_session, "root", pw, "admin")
+    headers = {"Authorization": f"Bearer {await _token(client, 'root', pw)}"}
+
+    created = await client.post(
+        "/api/v1/admin/users",
+        json={
+            "username": "second",
+            "email": "second@example.com",
+            "password": "second-pass-123",
+            "roles": ["admin"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    second_id = created.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/admin/users/{second_id}/roles",
+        json={"add": [], "remove": ["admin"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert "admin" not in resp.json()["roles"]
