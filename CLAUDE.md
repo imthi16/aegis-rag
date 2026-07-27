@@ -24,7 +24,7 @@ cd backend && ruff check . && ruff format --check . && mypy app && pytest
 - **Single test:** `cd backend && pytest tests/unit/test_rrf.py` or `pytest tests/unit/test_rrf.py::test_name`
 - **Integration tests need Postgres.** They *skip* unless a reachable asyncpg DSN is set: `TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/aegis pytest tests/integration`. The fixture drops/recreates all tables per engine (plus the `audit_log` append-only trigger, so tests run against the production guard), so point it at a throwaway DB.
 - **Lint/format/type auto-fix:** `make lint`, `make fmt` (writes), `make typecheck`, `make test` from repo root.
-- **Eval gate:** `python eval/ci_gate.py --suite both` — exits 0 (skips) when no local Ollama model is provisioned; add `--require` to make it blocking.
+- **Eval gate:** `python eval/ci_gate.py --suite both` — a preflight (`app/eval/check_local_model`) checks the eval deps, the staged embedding weights, and that `OLLAMA_HOST` is reachable *and serving* `OLLAMA_MODEL`. Unavailable → exit 0 with a named reason (`--require` turns that into exit 2). **Once preflight passes, any evaluation error is a real failure (exit 2) and is never reported as a skip** — previously a blanket `except` made a broken suite indistinguishable from an unprovisioned runner.
 
 Frontend (`./frontend`): `npm install && npm run typecheck && npm run build` (build is `tsc --noEmit && vite build`, so it is type-strict). `npm run dev` for the Vite dev server.
 

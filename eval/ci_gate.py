@@ -5,8 +5,15 @@ golden set, writes an eval_runs row (when a DB is reachable), and exits non-zero
 when faithfulness < FAITHFULNESS_THRESHOLD OR hallucination_rate >
 (1 - FAITHFULNESS_THRESHOLD).
 
-If the local model / eval deps are unavailable (e.g. CI without Ollama), the
-gate SKIPS (exit 0) unless --require is passed. It never reaches OpenAI.
+A preflight probe runs first (``app.eval.check_local_model``): it checks the
+eval deps, the staged embedding weights, and that OLLAMA_HOST is reachable and
+serving OLLAMA_MODEL. If that environment is not available (e.g. CI without
+Ollama) the gate SKIPS with a named reason (exit 0) unless --require is passed.
+Once preflight passes, any evaluation error is a REAL failure and exits non-zero
+— it is never reported as a skip. It never reaches OpenAI.
+
+Exit codes: 0 pass or skip · 1 below thresholds · 2 cannot evaluate (--require)
+or evaluation failed after preflight.
 
     python eval/ci_gate.py --suite both [--dataset path] [--require]
 """
@@ -59,7 +66,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from app.eval import gate_passed
+    from app.eval import check_local_model, gate_passed
+
+    # Preflight FIRST: decide up front whether this environment can evaluate at
+    # all, instead of inferring it from the wreckage of failed metric jobs.
+    preflight = check_local_model()
+    if not preflight.ok:
+        msg = f"ci_gate: cannot evaluate — {preflight.reason}"
+        if args.require:
+            print(msg, file=sys.stderr)
+            return 2
+        print(f"{msg} — SKIPPING (exit 0). Use --require to make this fail.", file=sys.stderr)
+        return 0
+    print(f"ci_gate: preflight ok — {preflight.reason}")
 
     metrics: dict[str, object] = {}
     faithfulness = 0.0
@@ -85,12 +104,15 @@ def main(argv: list[str] | None = None) -> int:
                 faithfulness = d.faithfulness
             metrics["hallucination_rate"] = d.hallucination_rate
     except Exception as exc:  # noqa: BLE001
-        msg = f"ci_gate: eval could not run ({type(exc).__name__}: {exc})"
-        if args.require:
-            print(msg, file=sys.stderr)
-            return 2
-        print(f"{msg} — SKIPPING (no local model). Use --require to fail.", file=sys.stderr)
-        return 0
+        # Preflight already proved the local model reachable and the weights
+        # staged, so this is a REAL evaluation failure — never skip it. Skipping
+        # here is what let a broken suite masquerade as an unprovisioned runner.
+        print(
+            f"ci_gate: evaluation FAILED after a successful preflight "
+            f"({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
+        return 2
 
     passed = gate_passed(faithfulness, hallucination_rate)
     print(
